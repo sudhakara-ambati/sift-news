@@ -33,6 +33,12 @@ Build a full-stack web application that serves as a personalised news aggregator
 - Conversation history is stored per-article (persisted in DB) so returning to an article restores the chat
 - Chat uses Gemini via an abstraction layer — structure the AI client so I can swap providers by changing one file
 
+#### Article content strategy
+- NewsAPI free tier only returns ~200 chars of content (plus `[+X chars]` marker). Do NOT fetch full content during the scheduled news fetch.
+- Instead, fetch full content just-in-time: when the user opens an article and starts a chat, the backend fetches the article URL server-side and extracts the main content using `@extractus/article-extractor`.
+- Cache the extracted content in `Article.content` so subsequent chats on the same article don't re-fetch.
+- If extraction fails or returns very little text, fall back to the NewsAPI snippet plus the article URL in the AI prompt, with instructions to the model to acknowledge it has limited context.
+
 ### 4. Authentication (single-user)
 - Only I should be able to access the app
 - Use NextAuth.js with a credentials provider
@@ -47,6 +53,17 @@ Build a full-stack web application that serves as a personalised news aggregator
 - Fetches articles for each active tag via NewsAPI /everything endpoint
 - Deduplicates articles (cluster by title similarity — Jaccard similarity on title word sets is fine for v1)
 - Stores to database, marks new articles for the feed
+
+#### Request budget (NewsAPI free tier: 100 req/day)
+Per cron run, make exactly:
+- 1× `/top-headlines?country=gb&language=en` — UK headlines
+- 1× `/top-headlines?category=general&language=en` — major international stories (no country filter)
+- 1× `/everything?q=<queryTerms>&language=en` per active tag
+
+At 4-hour cadence with ~5 tags, this is ~42 calls/day — well within budget. Deduplicate across all sources via the Jaccard clustering logic.
+
+#### Seed data
+`prisma/seed.ts` seeds two tags for initial testing: "AI" (query: `AI OR artificial intelligence`) and "UK politics" (query: `UK politics OR Westminster OR Starmer`). Run via `npm run db:seed`.
 
 ## Database schema (Prisma)
 
