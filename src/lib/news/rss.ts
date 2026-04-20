@@ -9,8 +9,16 @@ type FeedConfig = {
 };
 
 const FEEDS: FeedConfig[] = [
-  { url: "https://feeds.bbci.co.uk/news/rss.xml", source: "BBC News" },
-  { url: "https://www.theguardian.com/uk/rss", source: "The Guardian" },
+  { url: "https://feeds.bbci.co.uk/news/world/rss.xml", source: "BBC News" },
+  { url: "https://www.theguardian.com/world/rss", source: "The Guardian" },
+  {
+    url: "https://www.aljazeera.com/xml/rss/all.xml",
+    source: "Al Jazeera English",
+  },
+  {
+    url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    source: "The New York Times",
+  },
 ];
 
 async function fetchFeed({

@@ -4,7 +4,12 @@ const SOURCE_WEIGHTS: Record<string, number> = {
   "BBC News": 1.0,
   "The Guardian": 1.0,
   Reuters: 1.0,
-  "Reuters.com": 1.0,
+  "Associated Press": 1.0,
+  "AP News": 1.0,
+  "The New York Times": 1.0,
+  "The Washington Post": 1.0,
+  "Al Jazeera English": 1.0,
+  Bloomberg: 1.0,
 };
 
 const DEFAULT_SOURCE_WEIGHT = 0.5;

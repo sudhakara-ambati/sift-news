@@ -56,11 +56,20 @@ Build a full-stack web application that serves as a personalised news aggregator
 
 #### Request budget (NewsAPI free tier: 100 req/day)
 Per cron run, make exactly:
-- 1× `/top-headlines?country=gb&language=en` — UK headlines
 - 1× `/top-headlines?category=general&language=en` — major international stories (no country filter)
+- 1× `/top-headlines?sources=reuters,bbc-news,al-jazeera-english,bloomberg` — tier-1 wire services
 - 1× `/everything?q=<queryTerms>&language=en` per active tag
 
-At 4-hour cadence with ~5 tags, this is ~42 calls/day — well within budget. Deduplicate across all sources via the Jaccard clustering logic.
+At 4-hour cadence with ~5 tags, this is ~42 calls/day — well within budget. Deduplicate across all sources via the Jaccard clustering logic. `country=gb` was tested and returns 0 results on the free tier, so it is not used.
+
+#### RSS feeds
+International editions only (no UK-dominant lists):
+- BBC World — `https://feeds.bbci.co.uk/news/world/rss.xml`
+- Guardian World — `https://www.theguardian.com/world/rss`
+- Al Jazeera English — `https://www.aljazeera.com/xml/rss/all.xml`
+- NYT World — `https://rss.nytimes.com/services/xml/rss/nyt/World.xml`
+
+Reuters and Associated Press official RSS feeds were deprecated years ago. Reuters coverage comes from the NewsAPI `sources=reuters` call above. **AP coverage is a known gap** — if it feels missing, add an unofficial / third-party AP feed to `src/lib/news/rss.ts` later.
 
 #### Seed data
 `prisma/seed.ts` seeds two tags for initial testing: "AI" (query: `AI OR artificial intelligence`) and "UK politics" (query: `UK politics OR Westminster OR Starmer`). Run via `npm run db:seed`.

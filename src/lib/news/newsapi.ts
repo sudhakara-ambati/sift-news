@@ -62,19 +62,18 @@ async function callNewsApi(
   }
 }
 
-export async function fetchTopHeadlinesGb(): Promise<FetchedArticle[]> {
+export async function fetchTopHeadlinesGeneral(): Promise<FetchedArticle[]> {
   const raw = await callNewsApi("/top-headlines", {
-    country: "gb",
+    category: "general",
     language: "en",
     pageSize: "50",
   });
   return raw.map((a) => mapArticle(a, [])).filter(nonNull);
 }
 
-export async function fetchTopHeadlinesGeneral(): Promise<FetchedArticle[]> {
+export async function fetchTopHeadlinesSources(): Promise<FetchedArticle[]> {
   const raw = await callNewsApi("/top-headlines", {
-    category: "general",
-    language: "en",
+    sources: "reuters,bbc-news,al-jazeera-english,bloomberg",
     pageSize: "50",
   });
   return raw.map((a) => mapArticle(a, [])).filter(nonNull);

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
   fetchEverythingForTag,
-  fetchTopHeadlinesGb,
   fetchTopHeadlinesGeneral,
+  fetchTopHeadlinesSources,
 } from "@/lib/news/newsapi";
 import { fetchAllRssFeeds } from "@/lib/news/rss";
 import { clusterAndScore, dedupeByUrl } from "@/lib/news/ranking";
@@ -32,17 +32,17 @@ export async function GET(request: Request) {
 
   const activeTags = await prisma.tag.findMany();
 
-  const [gbHeadlines, generalHeadlines, rssItems, ...tagResults] =
+  const [generalHeadlines, sourceHeadlines, rssItems, ...tagResults] =
     await Promise.all([
-      fetchTopHeadlinesGb(),
       fetchTopHeadlinesGeneral(),
+      fetchTopHeadlinesSources(),
       fetchAllRssFeeds(),
       ...activeTags.map((t) => fetchEverythingForTag(t.id, t.queryTerms)),
     ]);
 
   const all: FetchedArticle[] = [
-    ...gbHeadlines,
     ...generalHeadlines,
+    ...sourceHeadlines,
     ...rssItems,
     ...tagResults.flat(),
   ];
@@ -102,8 +102,8 @@ export async function GET(request: Request) {
       updated,
     },
     sources: {
-      newsapiGb: gbHeadlines.length,
       newsapiGeneral: generalHeadlines.length,
+      newsapiSources: sourceHeadlines.length,
       rss: rssItems.length,
       newsapiTags: tagResults.reduce((n, arr) => n + arr.length, 0),
     },
