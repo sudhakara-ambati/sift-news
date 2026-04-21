@@ -72,7 +72,9 @@ export async function purgeBlockedArticles(): Promise<number> {
 }
 
 export async function runFetchPipeline(): Promise<FetchRunResult> {
-  await purgeBlockedArticles();
+  if (process.env.PURGE_BLOCKED_ON_FETCH === "1") {
+    await purgeBlockedArticles();
+  }
   const activeTags = await prisma.tag.findMany();
 
   const [

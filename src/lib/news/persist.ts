@@ -17,8 +17,15 @@ export async function persistScoredArticles(
 ): Promise<PersistCounts> {
   let inserted = 0;
   let updated = 0;
+  let errors = 0;
 
-  for (const article of scored) {
+  const concurrency = Math.max(
+    1,
+    Number.parseInt(process.env.PERSIST_CONCURRENCY ?? "4", 10) || 4,
+  );
+  const queue = [...scored];
+
+  async function processOne(article: ClusteredArticle) {
     const existing = await prisma.article.findUnique({
       where: { url: article.url },
       select: { id: true, isHeadline: true },
@@ -59,13 +66,41 @@ export async function persistScoredArticles(
     if (existing) updated++;
     else inserted++;
 
-    for (const tagId of article.tagIds) {
-      await prisma.articleTag.upsert({
-        where: { articleId_tagId: { articleId, tagId } },
-        create: { articleId, tagId },
-        update: {},
-      });
+    if (article.tagIds.length > 0) {
+      await Promise.all(
+        article.tagIds.map((tagId) =>
+          prisma.articleTag.upsert({
+            where: { articleId_tagId: { articleId, tagId } },
+            create: { articleId, tagId },
+            update: {},
+          }),
+        ),
+      );
     }
+  }
+
+  async function worker() {
+    while (queue.length > 0) {
+      const article = queue.shift();
+      if (!article) return;
+      try {
+        await processOne(article);
+      } catch (err) {
+        errors++;
+        console.error("persistScoredArticles: failed to persist", article.url, err);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concurrency, queue.length || 1) },
+      () => worker(),
+    ),
+  );
+
+  if (errors > 0) {
+    console.warn(`persistScoredArticles: ${errors} errors while persisting`);
   }
 
   return { inserted, updated };

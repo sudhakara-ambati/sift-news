@@ -17,6 +17,7 @@ type NewsApiResponse = {
 };
 
 const BASE = "https://newsapi.org/v2";
+const TIMEOUT_MS = 8000;
 
 function mapArticle(
   raw: NewsApiArticle,
@@ -52,6 +53,8 @@ async function callNewsApi(
   try {
     const res = await fetch(url.toString(), {
       headers: { "X-Api-Key": apiKey },
+      redirect: "follow",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const data = (await res.json()) as NewsApiResponse;
     if (data.status !== "ok") {
