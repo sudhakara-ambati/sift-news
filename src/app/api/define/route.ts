@@ -5,7 +5,7 @@ import { getAIProvider } from "@/lib/ai";
 import { AllModelsExhaustedError } from "@/lib/ai/gemini";
 
 const WIKIPEDIA_TIMEOUT_MS = 5000;
-const AI_TIMEOUT_MS = 12000;
+const AI_TIMEOUT_MS = 20000;
 
 const DEFAULT_AI_DEFINITIONS_PER_MINUTE = 24;
 const parsedLimit = Number.parseInt(
@@ -193,6 +193,15 @@ export async function GET(req: Request) {
             "AI definition quota is currently exhausted. Please try again later.",
         },
         { status: 429 },
+      );
+    }
+    if (err instanceof Error && /Timed out after/i.test(err.message)) {
+      return NextResponse.json(
+        {
+          error:
+            "Definition lookup took too long. Please retry.",
+        },
+        { status: 504 },
       );
     }
     console.error("defineTerm failed:", err);
