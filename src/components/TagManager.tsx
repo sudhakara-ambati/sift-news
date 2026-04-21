@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createTag,
@@ -355,40 +355,66 @@ function DeleteButton({ tag }: { tag: TagRow }) {
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
 
-  if (confirming) {
-    return (
-      <div className="flex gap-1">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            startTransition(async () => {
-              await deleteTag(tag.id);
-              setConfirming(false);
-            })
-          }
-          className="rounded-md bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
-        >
-          {pending ? "Deleting..." : "Confirm"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:border-white/30 hover:text-white"
-        >
-          Cancel
-        </button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!confirming) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirming(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [confirming]);
 
   return (
-    <button
-      type="button"
-      onClick={() => setConfirming(true)}
-      className="rounded-md border border-red-500/30 px-3 py-1.5 text-xs text-red-300 hover:border-red-500/60 hover:text-red-200"
-    >
-      Delete
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        disabled={pending}
+        className="rounded-md border border-red-500/30 px-3 py-1.5 text-xs text-red-300 hover:border-red-500/60 hover:text-red-200 disabled:opacity-50"
+      >
+        Delete
+      </button>
+      {confirming && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setConfirming(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-lg border border-white/10 bg-black p-4 shadow-xl">
+            <h3 className="text-sm font-semibold">Delete “{tag.name}”?</h3>
+            <p className="mt-1 text-xs text-white/60">
+              This removes the tag. Articles already fetched will stay in your
+              feed.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setConfirming(false)}
+                className="rounded-md border border-white/15 px-3 py-2 text-xs text-white/70 hover:border-white/30 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    await deleteTag(tag.id);
+                    setConfirming(false);
+                  })
+                }
+                className="rounded-md bg-red-500/80 px-3 py-2 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
+              >
+                {pending ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
