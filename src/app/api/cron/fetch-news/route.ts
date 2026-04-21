@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { runFetchPipeline } from "@/lib/news/fetch-pipeline";
 
 export const dynamic = "force-dynamic";
@@ -23,5 +24,6 @@ export async function GET(request: Request) {
   }
 
   const result = await runFetchPipeline();
+  revalidatePath("/");
   return NextResponse.json({ ok: true, ...result });
 }

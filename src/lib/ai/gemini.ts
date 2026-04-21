@@ -23,6 +23,16 @@ const DEFAULT_MODELS = [
   "gemma-3-4b-it",
 ];
 
+const DEFAULT_CHAT_HISTORY_CHAR_BUDGET = 6000;
+const parsedChatHistoryBudget = Number.parseInt(
+  process.env.AI_CHAT_HISTORY_CHAR_BUDGET ?? `${DEFAULT_CHAT_HISTORY_CHAR_BUDGET}`,
+  10,
+);
+const CHAT_HISTORY_CHAR_BUDGET =
+  Number.isFinite(parsedChatHistoryBudget) && parsedChatHistoryBudget > 0
+    ? parsedChatHistoryBudget
+    : DEFAULT_CHAT_HISTORY_CHAR_BUDGET;
+
 function isGemma(modelName: string): boolean {
   return modelName.startsWith("gemma-");
 }
@@ -229,7 +239,21 @@ function buildChatHistory(
   article: ArticleContext,
   needsInlineSystem: boolean,
 ) {
-  const mapped = history.map((t) => ({
+  const boundedHistory = (() => {
+    if (history.length <= 1) return history;
+    const kept: ChatTurn[] = [];
+    let used = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const turn = history[i];
+      const cost = turn.content.length + 32;
+      if (used + cost > CHAT_HISTORY_CHAR_BUDGET && kept.length >= 2) break;
+      kept.push(turn);
+      used += cost;
+    }
+    return kept.reverse();
+  })();
+
+  const mapped = boundedHistory.map((t) => ({
     role: t.role === "assistant" ? "model" : "user",
     parts: [{ text: t.content }],
   }));
@@ -531,6 +555,9 @@ export class GeminiProvider implements AIProvider {
 
   async generateTagQuery({ name }: { name: string }): Promise<string> {
     const draft = await draftTagQuery(name);
+    if (process.env.AI_TAG_QUERY_REFINE !== "1") {
+      return sanitizeQuery(draft);
+    }
     const refined = await refineTagQuery(name, draft);
     return sanitizeQuery(refined) || sanitizeQuery(draft);
   }

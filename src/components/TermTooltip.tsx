@@ -14,6 +14,8 @@ type Cached = {
 };
 
 const cache = new Map<string, Cached>();
+const inflight = new Map<string, Promise<Cached>>();
+const REQUEST_TIMEOUT_MS = 7000;
 
 let activeCloser: (() => void) | null = null;
 
@@ -65,27 +67,76 @@ export default function TermTooltip({ term, children }: Props) {
   }, []);
 
   function ensureLoaded() {
-    if (state || loading) return;
+    if (state?.definition || loading) return;
     setLoading(true);
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/define?term=${encodeURIComponent(term)}`,
-        );
-        const data = await res.json();
-        const next: Cached = res.ok
-          ? { definition: data.definition, source: data.source }
-          : { error: data.error ?? "Couldn't load definition." };
-        cache.set(term, next);
+
+    const existing = inflight.get(term);
+    const pending =
+      existing ??
+      (async (): Promise<Cached> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const res = await fetch(`/api/define?term=${encodeURIComponent(term)}`, {
+            signal: controller.signal,
+            headers: { accept: "application/json" },
+          });
+
+          const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+          if (!contentType.includes("application/json")) {
+            if (res.status === 401 || res.status === 403) {
+              return { error: "Session expired. Refresh and sign in again." };
+            }
+            return { error: "Definition service returned an unexpected response." };
+          }
+
+          const data = (await res.json()) as {
+            definition?: string;
+            source?: string;
+            error?: string;
+          };
+
+          if (!res.ok) {
+            return {
+              error:
+                typeof data.error === "string"
+                  ? data.error
+                  : `Couldn't load definition (${res.status}).`,
+            };
+          }
+
+          if (typeof data.definition !== "string" || data.definition.trim().length === 0) {
+            return { error: "Definition unavailable." };
+          }
+
+          return {
+            definition: data.definition,
+            source: typeof data.source === "string" ? data.source : undefined,
+          };
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            return { error: "Request timed out. Try again." };
+          }
+          return { error: "Network error. Check connection and try again." };
+        } finally {
+          clearTimeout(timer);
+        }
+      })();
+
+    inflight.set(term, pending);
+    void pending
+      .then((next) => {
+        if (next.definition) {
+          cache.set(term, next);
+        }
         setState(next);
-      } catch {
-        const next = { error: "Network error." };
-        cache.set(term, next);
-        setState(next);
-      } finally {
+      })
+      .finally(() => {
         setLoading(false);
-      }
-    })();
+        if (inflight.get(term) === pending) {
+          inflight.delete(term);
+        }
+      });
   }
 
   function handleOpen() {

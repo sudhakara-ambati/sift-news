@@ -6,7 +6,9 @@ import ChatPanel from "@/components/ChatPanel";
 import ArticleSummary from "@/components/ArticleSummary";
 import ArticleImage from "@/components/ArticleImage";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
+
+const MAX_INITIAL_CHAT_MESSAGES = 120;
 
 function parseTerms(raw: string | null): string[] {
   if (!raw) return [];
@@ -56,10 +58,13 @@ export default async function ArticleDetail({
       : Promise.resolve([]),
     prisma.chatMessage.findMany({
       where: { articleId: article.id },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
+      take: MAX_INITIAL_CHAT_MESSAGES,
       select: { id: true, role: true, content: true, createdAt: true },
     }),
   ]);
+
+  const orderedChatMessages = [...chatMessages].reverse();
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
@@ -115,7 +120,7 @@ export default async function ArticleDetail({
 
       <ChatPanel
         articleId={article.id}
-        initialMessages={chatMessages.map((m) => ({
+        initialMessages={orderedChatMessages.map((m) => ({
           id: m.id,
           role: m.role,
           content: m.content,

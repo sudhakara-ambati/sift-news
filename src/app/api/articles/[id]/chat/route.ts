@@ -6,17 +6,20 @@ import { getArticleContent } from "@/lib/content-extractor";
 
 const MAX_QUESTION_CHARS = 2000;
 const MAX_HISTORY_TURNS = 20;
+const MAX_HISTORY_MESSAGES = 120;
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const messages = await prisma.chatMessage.findMany({
+  const recent = await prisma.chatMessage.findMany({
     where: { articleId: id },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
+    take: MAX_HISTORY_MESSAGES,
     select: { id: true, role: true, content: true, createdAt: true },
   });
+  const messages = [...recent].reverse();
   return NextResponse.json({ messages });
 }
 
@@ -50,11 +53,19 @@ export async function POST(
   const [article, history] = await Promise.all([
     prisma.article.findUnique({
       where: { id },
-      select: { id: true, title: true, source: true, url: true, snippet: true },
+      select: {
+        id: true,
+        title: true,
+        source: true,
+        url: true,
+        snippet: true,
+        content: true,
+        imageUrl: true,
+      },
     }),
     prisma.chatMessage.findMany({
       where: { articleId: id },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
       take: MAX_HISTORY_TURNS,
       select: { role: true, content: true },
     }),
@@ -64,7 +75,12 @@ export async function POST(
     return NextResponse.json({ error: "Article not found" }, { status: 404 });
   }
 
-  const { content } = await getArticleContent(article.id);
+  const { content } = await getArticleContent({
+    id: article.id,
+    url: article.url,
+    content: article.content,
+    imageUrl: article.imageUrl,
+  });
 
   const provider = getAIProvider();
   const encoder = new TextEncoder();
@@ -83,7 +99,7 @@ export async function POST(
       history: history.map((h) => ({
         role: h.role === "assistant" ? "assistant" : "user",
         content: h.content,
-      })),
+      })).reverse(),
     });
   } catch (err) {
     console.error("AI chat stream setup failed:", err);

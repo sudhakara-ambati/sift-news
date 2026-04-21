@@ -48,26 +48,29 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-export async function getArticleContent(articleId: string): Promise<{
+type ArticleContextInput = {
+  id: string;
+  content: string | null;
+  url: string;
+  imageUrl: string | null;
+};
+
+export async function getArticleContent(
+  articleInput: string | ArticleContextInput,
+): Promise<{
   content: string | null;
   source: "cache" | "extracted" | "failed";
 }> {
-  const article = await prisma.article.findUnique({
-    where: { id: articleId },
-    select: { content: true, url: true, imageUrl: true },
-  });
+  const article =
+    typeof articleInput === "string"
+      ? await prisma.article.findUnique({
+          where: { id: articleInput },
+          select: { id: true, content: true, url: true, imageUrl: true },
+        })
+      : articleInput;
   if (!article) return { content: null, source: "failed" };
 
   if (article.content && article.content.length >= MIN_CONTENT_CHARS) {
-    if (!article.imageUrl) {
-      const ogImage = await fetchOgImage(article.url);
-      if (ogImage) {
-        await prisma.article.update({
-          where: { id: articleId },
-          data: { imageUrl: ogImage },
-        });
-      }
-    }
     return { content: article.content, source: "cache" };
   }
 
@@ -98,7 +101,7 @@ export async function getArticleContent(articleId: string): Promise<{
       if (img) update.imageUrl = img;
     }
     await prisma.article.update({
-      where: { id: articleId },
+      where: { id: article.id },
       data: update,
     });
     return { content: text, source: "extracted" };

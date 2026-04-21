@@ -4,7 +4,7 @@ import ArticleList from "@/components/ArticleList";
 import TagChips from "@/components/TagChips";
 import ScrollRestore from "@/components/ScrollRestore";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const FEED_LIMIT = 50;
 const OVERFETCH = 200;

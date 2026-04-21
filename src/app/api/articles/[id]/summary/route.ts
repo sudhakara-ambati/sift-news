@@ -17,6 +17,8 @@ export async function GET(
       title: true,
       source: true,
       url: true,
+      content: true,
+      imageUrl: true,
       snippet: true,
       summary: true,
       summaryTerms: true,
@@ -36,7 +38,12 @@ export async function GET(
     });
   }
 
-  const { content } = await getArticleContent(article.id);
+  const { content } = await getArticleContent({
+    id: article.id,
+    url: article.url,
+    content: article.content,
+    imageUrl: article.imageUrl,
+  });
 
   const provider = getAIProvider();
   let result: { summary: string; terms: string[]; model?: string };
