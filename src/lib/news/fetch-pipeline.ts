@@ -18,10 +18,13 @@ import { hydrateImages } from "@/lib/news/og-image";
 import type { FetchedArticle } from "@/lib/news/types";
 
 const AI_LAB_DOMAINS = "anthropic.com,deepmind.google";
-const IMAGE_HYDRATION_LIMIT = 80;
-const IMAGE_BACKFILL_LIMIT = 120;
+const DEFAULT_PERSIST_LIMIT = 250;
+const DEFAULT_IMAGE_HYDRATION_LIMIT = 12;
+const DEFAULT_IMAGE_BACKFILL_LIMIT = 0;
 
-export async function backfillMissingImages(limit = IMAGE_BACKFILL_LIMIT): Promise<number> {
+export async function backfillMissingImages(
+  limit = DEFAULT_IMAGE_BACKFILL_LIMIT,
+): Promise<number> {
   const candidates = await prisma.article.findMany({
     where: { imageUrl: null },
     orderBy: { score: "desc" },
@@ -109,14 +112,42 @@ export async function runFetchPipeline(): Promise<FetchRunResult> {
   );
 
   const ranked = [...scored].sort((a, b) => b.score - a.score);
-  const toHydrate = ranked.slice(0, IMAGE_HYDRATION_LIMIT);
-  const hydrated = await hydrateImages(toHydrate);
-  const hydratedByUrl = new Map(hydrated.map((a) => [a.url, a]));
-  const finalScored = scored.map((a) => hydratedByUrl.get(a.url) ?? a);
+
+  // Turso + Vercel cron runs can time out if we do heavy OG-image hydration
+  // or try to upsert hundreds of rows. Keep the cron fast by default; opt in
+  // via env vars if you want richer image coverage.
+  const persistLimit = Number.parseInt(
+    process.env.CRON_PERSIST_LIMIT ?? `${DEFAULT_PERSIST_LIMIT}`,
+    10,
+  );
+
+  const enableOgHydration = process.env.HYDRATE_OG_IMAGES === "1";
+  const hydrationLimit = Number.parseInt(
+    process.env.HYDRATE_OG_IMAGES_LIMIT ?? `${DEFAULT_IMAGE_HYDRATION_LIMIT}`,
+    10,
+  );
+
+  const toPersist = Number.isFinite(persistLimit) && persistLimit > 0
+    ? ranked.slice(0, persistLimit)
+    : ranked;
+
+  let finalScored = toPersist;
+  if (enableOgHydration) {
+    const toHydrate = toPersist.slice(0, Math.max(0, hydrationLimit));
+    const hydrated = await hydrateImages(toHydrate);
+    const hydratedByUrl = new Map(hydrated.map((a) => [a.url, a]));
+    finalScored = toPersist.map((a) => hydratedByUrl.get(a.url) ?? a);
+  }
 
   const { inserted, updated } = await persistScoredArticles(finalScored);
 
-  await backfillMissingImages();
+  const backfillLimit = Number.parseInt(
+    process.env.BACKFILL_OG_IMAGES_LIMIT ?? `${DEFAULT_IMAGE_BACKFILL_LIMIT}`,
+    10,
+  );
+  if (Number.isFinite(backfillLimit) && backfillLimit > 0) {
+    await backfillMissingImages(backfillLimit);
+  }
 
   return {
     counts: {
