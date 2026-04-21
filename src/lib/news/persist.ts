@@ -31,6 +31,11 @@ export async function persistScoredArticles(
       select: { id: true, isHeadline: true },
     });
 
+    const nextImageUrl =
+      typeof article.imageUrl === "string" && /^https?:\/\//i.test(article.imageUrl)
+        ? article.imageUrl
+        : null;
+
     // OR-upsert on isHeadline: once an article has been ingested via a
     // general/RSS/lab source, a later tag-only refetch must not demote it.
     const isHeadline = existing
@@ -42,7 +47,6 @@ export async function persistScoredArticles(
       source: article.source,
       publishedAt: article.publishedAt,
       snippet: article.snippet,
-      imageUrl: article.imageUrl,
       clusterId: article.clusterId,
       score: article.score,
       isHeadline,
@@ -52,13 +56,14 @@ export async function persistScoredArticles(
       ? (
           await prisma.article.update({
             where: { id: existing.id },
-            data: fields,
+            // Preserve an existing DB image when the new payload has none.
+            data: nextImageUrl ? { ...fields, imageUrl: nextImageUrl } : fields,
             select: { id: true },
           })
         ).id
       : (
           await prisma.article.create({
-            data: { ...fields, url: article.url },
+            data: { ...fields, imageUrl: nextImageUrl, url: article.url },
             select: { id: true },
           })
         ).id;

@@ -48,6 +48,62 @@ const FEEDS: FeedConfig[] = [
   },
 ];
 
+function toHttpUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return trimmed;
+}
+
+function readNestedUrl(node: unknown): string | null {
+  if (!node) return null;
+  if (typeof node === "string") return toHttpUrl(node);
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = readNestedUrl(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof node === "object") {
+    const obj = node as Record<string, unknown>;
+    const direct =
+      toHttpUrl(obj.url) ??
+      toHttpUrl(obj.href) ??
+      toHttpUrl(obj.src) ??
+      toHttpUrl(obj["$"] && typeof obj["$"] === "object" ? (obj["$"] as Record<string, unknown>).url : null);
+    if (direct) return direct;
+    for (const value of Object.values(obj)) {
+      const found = readNestedUrl(value);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function extractRssImage(item: unknown): string | null {
+  if (!item || typeof item !== "object") return null;
+  const obj = item as Record<string, unknown>;
+
+  const candidates: unknown[] = [
+    obj.enclosure,
+    obj["media:content"],
+    obj["media:thumbnail"],
+    obj["media:group"],
+    obj["content:encoded"],
+    obj.itunes,
+    obj.image,
+    obj.thumbnail,
+  ];
+
+  for (const candidate of candidates) {
+    const found = readNestedUrl(candidate);
+    if (found) return found;
+  }
+
+  return null;
+}
+
 async function fetchFeed({
   url,
   source,
@@ -65,13 +121,14 @@ async function fetchFeed({
             ? new Date(item.pubDate)
             : new Date();
         if (publishedAt.getTime() < cutoff) return null;
+        const imageUrl = extractRssImage(item);
         return {
           title: cleanTitle(item.title),
           url: item.link,
           source,
           publishedAt,
           snippet: cleanSnippet(item.contentSnippet ?? item.content ?? null),
-          imageUrl: null,
+          imageUrl,
           tagIds: [],
           isHeadline: true,
         };
