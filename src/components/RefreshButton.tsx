@@ -7,7 +7,8 @@ import {
   refreshTagArticles,
 } from "@/app/(app)/actions";
 
-const REFRESH_TIMEOUT_MS = 90_000;
+const REFRESH_TAG_TIMEOUT_MS = 90_000;
+const REFRESH_ALL_TIMEOUT_MS = 240_000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -54,7 +55,7 @@ export default function RefreshButton() {
         which === "tag" && activeTagId
           ? refreshTagArticles(activeTagId)
           : refreshArticles(),
-        REFRESH_TIMEOUT_MS,
+        which === "all" ? REFRESH_ALL_TIMEOUT_MS : REFRESH_TAG_TIMEOUT_MS,
       );
 
       if (res.ok) {

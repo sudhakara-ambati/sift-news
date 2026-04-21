@@ -22,6 +22,13 @@ const DEFAULT_PERSIST_LIMIT = 250;
 const DEFAULT_IMAGE_HYDRATION_LIMIT = 12;
 const DEFAULT_IMAGE_BACKFILL_LIMIT = 0;
 
+export type FetchPipelineOptions = {
+  persistLimit?: number;
+  enableOgHydration?: boolean;
+  hydrationLimit?: number;
+  backfillLimit?: number;
+};
+
 export async function backfillMissingImages(
   limit = DEFAULT_IMAGE_BACKFILL_LIMIT,
 ): Promise<number> {
@@ -71,7 +78,9 @@ export async function purgeBlockedArticles(): Promise<number> {
   return res.count;
 }
 
-export async function runFetchPipeline(): Promise<FetchRunResult> {
+export async function runFetchPipeline(
+  options: FetchPipelineOptions = {},
+): Promise<FetchRunResult> {
   if (process.env.PURGE_BLOCKED_ON_FETCH === "1") {
     await purgeBlockedArticles();
   }
@@ -118,16 +127,28 @@ export async function runFetchPipeline(): Promise<FetchRunResult> {
   // Turso + Vercel cron runs can time out if we do heavy OG-image hydration
   // or try to upsert hundreds of rows. Keep the cron fast by default; opt in
   // via env vars if you want richer image coverage.
-  const persistLimit = Number.parseInt(
+  const configuredPersistLimit = Number.parseInt(
     process.env.CRON_PERSIST_LIMIT ?? `${DEFAULT_PERSIST_LIMIT}`,
     10,
   );
+  const persistLimit =
+    typeof options.persistLimit === "number"
+      ? options.persistLimit
+      : configuredPersistLimit;
 
-  const enableOgHydration = process.env.HYDRATE_OG_IMAGES === "1";
-  const hydrationLimit = Number.parseInt(
+  const configuredEnableOgHydration = process.env.HYDRATE_OG_IMAGES === "1";
+  const enableOgHydration =
+    typeof options.enableOgHydration === "boolean"
+      ? options.enableOgHydration
+      : configuredEnableOgHydration;
+  const configuredHydrationLimit = Number.parseInt(
     process.env.HYDRATE_OG_IMAGES_LIMIT ?? `${DEFAULT_IMAGE_HYDRATION_LIMIT}`,
     10,
   );
+  const hydrationLimit =
+    typeof options.hydrationLimit === "number"
+      ? options.hydrationLimit
+      : configuredHydrationLimit;
 
   const toPersist = Number.isFinite(persistLimit) && persistLimit > 0
     ? ranked.slice(0, persistLimit)
@@ -143,10 +164,14 @@ export async function runFetchPipeline(): Promise<FetchRunResult> {
 
   const { inserted, updated } = await persistScoredArticles(finalScored);
 
-  const backfillLimit = Number.parseInt(
+  const configuredBackfillLimit = Number.parseInt(
     process.env.BACKFILL_OG_IMAGES_LIMIT ?? `${DEFAULT_IMAGE_BACKFILL_LIMIT}`,
     10,
   );
+  const backfillLimit =
+    typeof options.backfillLimit === "number"
+      ? options.backfillLimit
+      : configuredBackfillLimit;
   if (Number.isFinite(backfillLimit) && backfillLimit > 0) {
     await backfillMissingImages(backfillLimit);
   }

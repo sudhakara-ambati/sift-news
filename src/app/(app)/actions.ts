@@ -16,7 +16,12 @@ export async function refreshArticles(): Promise<RefreshResult> {
   if (!session) return { ok: false, error: "Not signed in" };
 
   try {
-    const { counts } = await runFetchPipeline();
+    const { counts } = await runFetchPipeline({
+      // Manual refresh should prioritise responsiveness.
+      // Heavy image enrichment is still handled by cron/backfill actions.
+      enableOgHydration: false,
+      backfillLimit: 0,
+    });
     revalidatePath("/");
     revalidatePath("/tags");
     return { ok: true, inserted: counts.inserted, updated: counts.updated };
