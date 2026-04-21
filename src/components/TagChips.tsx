@@ -5,9 +5,10 @@ type Tag = { id: string; name: string };
 type Props = {
   tags: Tag[];
   activeTagId: string | null;
+  activeView: "general" | "all" | "tag";
 };
 
-export default function TagChips({ tags, activeTagId }: Props) {
+export default function TagChips({ tags, activeTagId, activeView }: Props) {
   const chipClass = (active: boolean) =>
     active
       ? "shrink-0 rounded-full border border-white/30 bg-white px-3 py-1 text-xs font-medium text-black"
@@ -15,7 +16,10 @@ export default function TagChips({ tags, activeTagId }: Props) {
 
   return (
     <div className="flex gap-1.5 whitespace-nowrap sm:flex-wrap">
-      <Link href="/" className={chipClass(activeTagId === null)}>
+      <Link href="/" className={chipClass(activeView === "general")}>
+        General
+      </Link>
+      <Link href="/?view=all" className={chipClass(activeView === "all")}>
         All
       </Link>
       {tags.map((tag) => (

@@ -387,7 +387,14 @@ export function dedupeByUrl(articles: FetchedArticle[]): FetchedArticle[] {
       const mergedTagIds = Array.from(
         new Set([...existing.tagIds, ...a.tagIds]),
       );
-      byUrl.set(a.url, { ...existing, tagIds: mergedTagIds });
+      // OR-merge: an article that arrived via both headline + tag sources
+      // should count as a headline.
+      const mergedIsHeadline = existing.isHeadline || a.isHeadline;
+      byUrl.set(a.url, {
+        ...existing,
+        tagIds: mergedTagIds,
+        isHeadline: mergedIsHeadline,
+      });
     }
   }
   return Array.from(byUrl.values());

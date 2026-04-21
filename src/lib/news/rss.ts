@@ -73,6 +73,7 @@ async function fetchFeed({
           snippet: cleanSnippet(item.contentSnippet ?? item.content ?? null),
           imageUrl: null,
           tagIds: [],
+          isHeadline: true,
         };
       })
       .filter((a): a is FetchedArticle => a !== null);

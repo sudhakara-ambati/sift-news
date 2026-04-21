@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import SignOutButton from "@/components/SignOutButton";
 import RefreshButton from "@/components/RefreshButton";
+import SearchBar from "@/components/SearchBar";
 
 export default function Header() {
   return (
@@ -24,6 +25,7 @@ export default function Header() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <SearchBar />
           <Suspense fallback={null}>
             <RefreshButton />
           </Suspense>

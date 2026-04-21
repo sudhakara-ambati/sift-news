@@ -21,6 +21,7 @@ model Article {
   imageUrl    String?
   clusterId   String?
   score       Float    @default(0)
+  isHeadline  Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   tags         ArticleTag[]

@@ -21,6 +21,7 @@ const BASE = "https://newsapi.org/v2";
 function mapArticle(
   raw: NewsApiArticle,
   tagIds: string[],
+  isHeadline: boolean,
 ): FetchedArticle | null {
   if (!raw.title || !raw.url || raw.title === "[Removed]") return null;
   return {
@@ -31,6 +32,7 @@ function mapArticle(
     snippet: cleanSnippet(raw.description),
     imageUrl: raw.urlToImage,
     tagIds,
+    isHeadline,
   };
 }
 
@@ -69,7 +71,7 @@ export async function fetchTopHeadlinesGeneral(): Promise<FetchedArticle[]> {
     language: "en",
     pageSize: "50",
   });
-  return raw.map((a) => mapArticle(a, [])).filter(nonNull);
+  return raw.map((a) => mapArticle(a, [], true)).filter(nonNull);
 }
 
 export async function fetchTopHeadlinesSources(): Promise<FetchedArticle[]> {
@@ -77,7 +79,7 @@ export async function fetchTopHeadlinesSources(): Promise<FetchedArticle[]> {
     sources: "reuters,bbc-news,al-jazeera-english,bloomberg",
     pageSize: "50",
   });
-  return raw.map((a) => mapArticle(a, [])).filter(nonNull);
+  return raw.map((a) => mapArticle(a, [], true)).filter(nonNull);
 }
 
 export async function fetchEverythingForTag(
@@ -107,7 +109,35 @@ export async function fetchEverythingForTag(
     seen.add(a.url);
     merged.push(a);
   }
-  return merged.map((a) => mapArticle(a, [tagId])).filter(nonNull);
+  return merged.map((a) => mapArticle(a, [tagId], false)).filter(nonNull);
+}
+
+// Ad-hoc keyword search. Same dual-sort pattern as tag fetches but tagless.
+export async function fetchEverythingForKeywords(
+  query: string,
+): Promise<FetchedArticle[]> {
+  const [popular, relevant] = await Promise.all([
+    callNewsApi("/everything", {
+      q: query,
+      language: "en",
+      sortBy: "popularity",
+      pageSize: "60",
+    }),
+    callNewsApi("/everything", {
+      q: query,
+      language: "en",
+      sortBy: "relevancy",
+      pageSize: "60",
+    }),
+  ]);
+  const seen = new Set<string>();
+  const merged: NewsApiArticle[] = [];
+  for (const a of [...popular, ...relevant]) {
+    if (!a.url || seen.has(a.url)) continue;
+    seen.add(a.url);
+    merged.push(a);
+  }
+  return merged.map((a) => mapArticle(a, [], false)).filter(nonNull);
 }
 
 export async function fetchEverythingForDomains(
@@ -119,7 +149,7 @@ export async function fetchEverythingForDomains(
     sortBy: "publishedAt",
     pageSize: "50",
   });
-  return raw.map((a) => mapArticle(a, [])).filter(nonNull);
+  return raw.map((a) => mapArticle(a, [], true)).filter(nonNull);
 }
 
 function nonNull<T>(v: T | null): v is T {

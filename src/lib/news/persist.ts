@@ -21,8 +21,14 @@ export async function persistScoredArticles(
   for (const article of scored) {
     const existing = await prisma.article.findUnique({
       where: { url: article.url },
-      select: { id: true },
+      select: { id: true, isHeadline: true },
     });
+
+    // OR-upsert on isHeadline: once an article has been ingested via a
+    // general/RSS/lab source, a later tag-only refetch must not demote it.
+    const isHeadline = existing
+      ? existing.isHeadline || article.isHeadline
+      : article.isHeadline;
 
     const fields = {
       title: article.title,
@@ -32,6 +38,7 @@ export async function persistScoredArticles(
       imageUrl: article.imageUrl,
       clusterId: article.clusterId,
       score: article.score,
+      isHeadline,
     };
 
     const articleId = existing

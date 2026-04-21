@@ -15,14 +15,22 @@ const TOP_WINDOW = 15;
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ tag?: string }>;
+  searchParams: Promise<{ tag?: string; view?: string }>;
 }) {
-  const { tag: tagId } = await searchParams;
+  const { tag: tagId, view } = await searchParams;
+
+  // Feed filter: tag chip wins, then view=all (any tagged article), then
+  // default (isHeadline = true — global top-headlines + RSS + lab domains).
+  const where = tagId
+    ? { tags: { some: { tagId } } }
+    : view === "all"
+      ? { tags: { some: {} } }
+      : { isHeadline: true };
 
   const [tags, candidates] = await Promise.all([
     prisma.tag.findMany({ orderBy: { name: "asc" } }),
     prisma.article.findMany({
-      where: tagId ? { tags: { some: { tagId } } } : undefined,
+      where,
       orderBy: { score: "desc" },
       take: OVERFETCH,
       select: {
@@ -103,6 +111,11 @@ export default async function Home({
   }));
 
   const activeTag = tagId ? tags.find((t) => t.id === tagId) : null;
+  const activeView: "general" | "all" | "tag" = activeTag
+    ? "tag"
+    : view === "all"
+      ? "all"
+      : "general";
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
@@ -110,7 +123,11 @@ export default async function Home({
         <ScrollRestore />
       </Suspense>
       <div className="mb-8 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:mb-10 sm:px-0">
-        <TagChips tags={tags} activeTagId={activeTag?.id ?? null} />
+        <TagChips
+          tags={tags}
+          activeTagId={activeTag?.id ?? null}
+          activeView={activeView}
+        />
       </div>
       <ArticleList articles={articles} />
     </div>

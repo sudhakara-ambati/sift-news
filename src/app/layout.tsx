@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,19 @@ const sourceSerif = Source_Serif_4({
 export const metadata: Metadata = {
   title: "Sift",
   description: "Personal AI news aggregator.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Sift",
+    statusBarStyle: "black-translucent",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0b0b0c",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
