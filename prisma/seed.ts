@@ -3,10 +3,15 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const SEED_TAGS = [
-  { name: "AI", queryTerms: "AI OR artificial intelligence" },
+  {
+    name: "AI",
+    queryTerms:
+      '"artificial intelligence" OR "generative AI" OR "large language model" OR OpenAI OR Anthropic OR DeepMind OR "Hugging Face" OR ChatGPT OR "GPT-4" OR "GPT-5"',
+  },
   {
     name: "UK politics",
-    queryTerms: "UK politics OR Westminster OR Starmer",
+    queryTerms:
+      '"UK politics" OR "British politics" OR Westminster OR Starmer OR "Downing Street" OR "House of Commons" OR "Labour Party" OR "Conservative Party"',
   },
 ];
 

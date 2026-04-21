@@ -1,4 +1,5 @@
 import type { FetchedArticle } from "./types";
+import { cleanSnippet, cleanTitle } from "@/lib/text";
 
 type NewsApiArticle = {
   title: string | null;
@@ -23,11 +24,11 @@ function mapArticle(
 ): FetchedArticle | null {
   if (!raw.title || !raw.url || raw.title === "[Removed]") return null;
   return {
-    title: raw.title,
+    title: cleanTitle(raw.title),
     url: raw.url,
     source: raw.source?.name ?? "Unknown",
     publishedAt: raw.publishedAt ? new Date(raw.publishedAt) : new Date(),
-    snippet: raw.description,
+    snippet: cleanSnippet(raw.description),
     imageUrl: raw.urlToImage,
     tagIds,
   };
@@ -83,13 +84,42 @@ export async function fetchEverythingForTag(
   tagId: string,
   queryTerms: string,
 ): Promise<FetchedArticle[]> {
+  // Two passes: popularity (big-outlet coverage) + relevancy (tightly-matched
+  // stories from smaller outlets). Union is deduped by URL downstream.
+  const [popular, relevant] = await Promise.all([
+    callNewsApi("/everything", {
+      q: queryTerms,
+      language: "en",
+      sortBy: "popularity",
+      pageSize: "60",
+    }),
+    callNewsApi("/everything", {
+      q: queryTerms,
+      language: "en",
+      sortBy: "relevancy",
+      pageSize: "60",
+    }),
+  ]);
+  const seen = new Set<string>();
+  const merged: NewsApiArticle[] = [];
+  for (const a of [...popular, ...relevant]) {
+    if (!a.url || seen.has(a.url)) continue;
+    seen.add(a.url);
+    merged.push(a);
+  }
+  return merged.map((a) => mapArticle(a, [tagId])).filter(nonNull);
+}
+
+export async function fetchEverythingForDomains(
+  domains: string,
+): Promise<FetchedArticle[]> {
   const raw = await callNewsApi("/everything", {
-    q: queryTerms,
+    domains,
     language: "en",
     sortBy: "publishedAt",
-    pageSize: "30",
+    pageSize: "50",
   });
-  return raw.map((a) => mapArticle(a, [tagId])).filter(nonNull);
+  return raw.map((a) => mapArticle(a, [])).filter(nonNull);
 }
 
 function nonNull<T>(v: T | null): v is T {

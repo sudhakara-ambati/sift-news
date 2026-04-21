@@ -10,11 +10,11 @@ type Props = {
 export default function TagChips({ tags, activeTagId }: Props) {
   const chipClass = (active: boolean) =>
     active
-      ? "rounded-full border border-white/30 bg-white/15 px-3 py-1 text-sm text-white"
-      : "rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-sm text-white/70 hover:border-white/20 hover:text-white";
+      ? "shrink-0 rounded-full border border-white/30 bg-white px-3 py-1 text-xs font-medium text-black"
+      : "shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-white/70 hover:border-white/25 hover:text-white";
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex gap-1.5 whitespace-nowrap sm:flex-wrap">
       <Link href="/" className={chipClass(activeTagId === null)}>
         All
       </Link>

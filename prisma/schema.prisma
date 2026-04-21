@@ -15,6 +15,9 @@ model Article {
   publishedAt DateTime
   snippet     String?
   content     String?
+  summary      String?
+  summaryTerms String?
+  summaryModel String?
   imageUrl    String?
   clusterId   String?
   score       Float    @default(0)
@@ -46,6 +49,14 @@ model ArticleTag {
 
   @@id([articleId, tagId])
   @@index([tagId])
+}
+
+model Definition {
+  id        String   @id @default(cuid())
+  term      String   @unique
+  content   String
+  source    String
+  createdAt DateTime @default(now())
 }
 
 model ChatMessage {

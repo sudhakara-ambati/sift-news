@@ -8,7 +8,7 @@ Build a full-stack web application that serves as a personalised news aggregator
 - Styling: Tailwind CSS
 - Database: SQLite via Prisma ORM (for local dev; can migrate to Turso later)
 - AI provider: Google Gemini via @google/generative-ai SDK, with abstraction layer so I can swap to Claude API later
-- News sources: NewsAPI.org (primary) + RSS feeds from BBC, Guardian, Reuters (fallback/supplementary)
+- News sources: NewsAPI.org (primary) + RSS feeds (BBC/Guardian/NYT/Al Jazeera for mainstream; Import AI/OpenAI/HN/Google News for niche AI coverage)
 - Auth: Simple single-user password auth via NextAuth.js credentials provider (no sign-ups, just me)
 - Deployment target: Vercel (free tier) with Vercel Cron for scheduled news fetching
 
@@ -58,21 +58,51 @@ Build a full-stack web application that serves as a personalised news aggregator
 Per cron run, make exactly:
 - 1× `/top-headlines?category=general&language=en` — major international stories (no country filter)
 - 1× `/top-headlines?sources=reuters,bbc-news,al-jazeera-english,bloomberg` — tier-1 wire services
+- 1× `/everything?domains=anthropic.com,deepmind.google&language=en&sortBy=publishedAt` — primary AI lab announcements (their official blogs don't offer working RSS)
 - 1× `/everything?q=<queryTerms>&language=en` per active tag
 
-At 4-hour cadence with ~5 tags, this is ~42 calls/day — well within budget. Deduplicate across all sources via the Jaccard clustering logic. `country=gb` was tested and returns 0 results on the free tier, so it is not used.
+At 4-hour cadence with ~5 tags, this is ~48 calls/day — well within budget. Deduplicate across all sources via the Jaccard clustering logic. `country=gb` was tested and returns 0 results on the free tier, so it is not used.
 
 #### RSS feeds
-International editions only (no UK-dominant lists):
+Two tiers — mainstream international coverage plus niche AI industry signal. AI coverage on BBC/Guardian/NYT lags industry events by days; the AI-specific feeds catch personnel moves, model releases, and company news at source.
+
+**Mainstream (international editions, no UK-dominant lists):**
 - BBC World — `https://feeds.bbci.co.uk/news/world/rss.xml`
 - Guardian World — `https://www.theguardian.com/world/rss`
 - Al Jazeera English — `https://www.aljazeera.com/xml/rss/all.xml`
 - NYT World — `https://rss.nytimes.com/services/xml/rss/nyt/World.xml`
 
+**AI industry (direct sources + Google News topic queries):**
+- Import AI — `https://importai.substack.com/feed` (Jack Clark's weekly newsletter; ex-Anthropic policy, covers industry moves + technical breakthroughs)
+- OpenAI blog — `https://openai.com/blog/rss.xml` (official product + research announcements)
+- Hacker News (≥300 points) — `https://hnrss.org/frontpage?points=300` (high-signal community aggregator)
+- Google News — Anthropic — `https://news.google.com/rss/search?q=anthropic&hl=en-US&gl=US&ceid=US:en`
+- Google News — DeepMind — `https://news.google.com/rss/search?q=deepmind&hl=en-US&gl=US&ceid=US:en`
+
+Google News topic queries are a workaround: Anthropic and DeepMind no longer publish working RSS (both `/news/feed` and `/discover/blog/rss.xml` return 404). The NewsAPI `domains=anthropic.com,deepmind.google` call above covers announcements on their own sites; the Google News feeds surface third-party reporting on those labs within hours. Import AI is only weekly, so it's too slow for time-sensitive news on its own.
+
 Reuters and Associated Press official RSS feeds were deprecated years ago. Reuters coverage comes from the NewsAPI `sources=reuters` call above. **AP coverage is a known gap** — if it feels missing, add an unofficial / third-party AP feed to `src/lib/news/rss.ts` later.
 
+#### Domain blocklist
+NewsAPI `/everything` matches keywords across title+description+content, which pulls in non-news sources that happen to contain AI-related strings (e.g. a PyPI package named `claude-client` or a Stack Overflow thread about `openai` quotas). These are code/Q&A, not news, and they pollute any AI-related tag feed.
+
+`src/lib/news/filters.ts` applies a hostname blocklist during ingestion — blocked articles are dropped before dedupe/clustering/persistence, so they never reach the DB. Current blocklist: package registries (`pypi.org`, `npmjs.com`, `rubygems.org`, `crates.io`, `packagist.org`, `nuget.org`, `pkg.go.dev`, `hex.pm`) and developer Q&A sites (`stackoverflow.com`, `serverfault.com`, `askubuntu.com`). Matching is by hostname-equals or ends-with-`.domain`.
+
+`github.com` is deliberately NOT blocked — AI labs sometimes link research releases there. If GitHub release noise becomes a problem, prefer a path-level rule (e.g. skip `/*/releases/tag/`) over a blanket block.
+
+**Source weights in `src/lib/news/ranking.ts`:**
+- 1.0: BBC, Guardian, Reuters, AP, NYT, Washington Post, Al Jazeera, Bloomberg, Import AI, OpenAI, Anthropic, Google DeepMind (direct primary sources)
+- 0.8: Google News (aggregator, but topic-filtered)
+- 0.7: Hacker News (good signal, noisier — opinion mixed with news)
+- 0.5: everything else (default)
+
 #### Seed data
-`prisma/seed.ts` seeds two tags for initial testing: "AI" (query: `AI OR artificial intelligence`) and "UK politics" (query: `UK politics OR Westminster OR Starmer`). Run via `npm run db:seed`.
+`prisma/seed.ts` seeds two tags for initial testing. The query strings use NewsAPI `/everything` syntax — phrase quotes matter, and single tokens like `AI` are too short and must be avoided (they match noise like people's initials, library names):
+
+- **AI**: `"artificial intelligence" OR "generative AI" OR "machine learning" OR OpenAI OR Anthropic OR DeepMind OR ChatGPT OR "large language model"`
+- **UK politics**: `"UK politics" OR "British politics" OR Westminster OR Starmer OR "Downing Street" OR "House of Commons" OR "Labour Party" OR "Conservative Party"`
+
+Run via `npm run db:seed`. Expect some false positives from `/everything` even with tight queries — tag UI in step 5 lets the user retune per tag.
 
 ## Database schema (Prisma)
 
