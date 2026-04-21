@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   createTag,
   deleteTag,
@@ -19,24 +18,38 @@ type TagRow = {
 };
 
 export default function TagManager({ tags }: { tags: TagRow[] }) {
+  const [localTags, setLocalTags] = useState<TagRow[]>(tags);
+
+  useEffect(() => {
+    setLocalTags(tags);
+  }, [tags]);
+
   return (
     <div className="space-y-6">
-      <NewTagForm />
+      <NewTagForm
+        onCreated={(created) => {
+          setLocalTags((prev) => {
+            if (prev.some((t) => t.id === created.id)) return prev;
+            return [...prev, created].sort((a, b) =>
+              a.name.localeCompare(b.name),
+            );
+          });
+        }}
+      />
       <div className="space-y-3">
-        {tags.length === 0 ? (
+        {localTags.length === 0 ? (
           <p className="rounded-lg border border-white/10 p-6 text-center text-sm text-white/60">
             No tags yet. Add one above.
           </p>
         ) : (
-          tags.map((tag) => <TagRow key={tag.id} tag={tag} />)
+          localTags.map((tag) => <TagRow key={tag.id} tag={tag} />)
         )}
       </div>
     </div>
   );
 }
 
-function NewTagForm() {
-  const router = useRouter();
+function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -77,17 +90,24 @@ function NewTagForm() {
         setError(null);
         setPostCreateStatus(null);
         startTransition(async () => {
+          const snapshotName = name.trim();
+          const snapshotQuery = queryTerms.trim();
           const res = await createTag(fd);
           if (!res.ok) setError(res.error);
           else {
             setOpen(false);
             setName("");
             setQueryTerms("");
+            onCreated({
+              id: res.id,
+              name: snapshotName,
+              queryTerms: snapshotQuery,
+              articleCount: 0,
+            });
 
             // Fetch articles for the new tag without blocking tag creation UX.
             setPostCreateStatus("Tag added. Fetching articles…");
-            router.refresh();
-            startTransition(async () => {
+            void (async () => {
               const refreshed = await refreshTagArticles(res.id);
               setPostCreateStatus(
                 refreshed.ok
@@ -96,9 +116,8 @@ function NewTagForm() {
                     : "Up to date"
                   : refreshed.error,
               );
-              router.refresh();
               setTimeout(() => setPostCreateStatus(null), 5000);
-            });
+            })();
           }
         });
       }}
