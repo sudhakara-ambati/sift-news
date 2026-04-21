@@ -1,30 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
-
-const BROKEN_KEY = "sift-broken-imgs";
-const useIsoLayoutEffect =
-  typeof window !== "undefined" ? useLayoutEffect : useEffect;
-
-function getBrokenSet(): Set<string> {
-  try {
-    const raw = sessionStorage.getItem(BROKEN_KEY);
-    if (raw) return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    // ignore
-  }
-  return new Set();
-}
-
-function addBroken(src: string) {
-  try {
-    const set = getBrokenSet();
-    set.add(src);
-    sessionStorage.setItem(BROKEN_KEY, JSON.stringify([...set]));
-  } catch {
-    // ignore
-  }
-}
+import { useEffect, useState } from "react";
 
 type Props = {
   src: string;
@@ -43,8 +19,9 @@ export default function ArticleImage({
 }: Props) {
   const [failed, setFailed] = useState(false);
 
-  useIsoLayoutEffect(() => {
-    setFailed(getBrokenSet().has(src));
+  useEffect(() => {
+    // Reset error state when src changes so images can recover from transient failures.
+    setFailed(false);
   }, [src]);
 
   if (failed) return <>{fallback}</>;
@@ -57,10 +34,7 @@ export default function ArticleImage({
         alt=""
         loading={loading ?? "lazy"}
         className={className}
-        onError={() => {
-          addBroken(src);
-          setFailed(true);
-        }}
+        onError={() => setFailed(true)}
       />
       {children}
     </>

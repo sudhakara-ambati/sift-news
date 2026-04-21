@@ -2,7 +2,17 @@ import Parser from "rss-parser";
 import type { FetchedArticle } from "./types";
 import { cleanSnippet, cleanTitle } from "@/lib/text";
 
-const parser = new Parser({ timeout: 10000 });
+const parser = new Parser({
+  timeout: 10000,
+  customFields: {
+    item: [
+      ["media:content", "mediaContent", { keepArray: true }],
+      ["media:thumbnail", "mediaThumbnail", { keepArray: true }],
+      ["media:group", "mediaGroup"],
+      ["content:encoded", "contentEncoded"],
+    ],
+  },
+});
 
 const MAX_AGE_DAYS = 14;
 
@@ -48,19 +58,26 @@ const FEEDS: FeedConfig[] = [
   },
 ];
 
-function toHttpUrl(value: unknown): string | null {
+function toHttpUrl(value: unknown, base?: string): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return null;
-  return trimmed;
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (!base) return null;
+  try {
+    return new URL(trimmed, base).toString();
+  } catch {
+    return null;
+  }
 }
 
-function readNestedUrl(node: unknown): string | null {
+function readNestedUrl(node: unknown, base?: string): string | null {
   if (!node) return null;
-  if (typeof node === "string") return toHttpUrl(node);
+  if (typeof node === "string") return toHttpUrl(node, base);
   if (Array.isArray(node)) {
     for (const item of node) {
-      const found = readNestedUrl(item);
+      const found = readNestedUrl(item, base);
       if (found) return found;
     }
     return null;
@@ -68,38 +85,74 @@ function readNestedUrl(node: unknown): string | null {
   if (typeof node === "object") {
     const obj = node as Record<string, unknown>;
     const direct =
-      toHttpUrl(obj.url) ??
-      toHttpUrl(obj.href) ??
-      toHttpUrl(obj.src) ??
-      toHttpUrl(obj["$"] && typeof obj["$"] === "object" ? (obj["$"] as Record<string, unknown>).url : null);
+      toHttpUrl(obj.url, base) ??
+      toHttpUrl(obj.href, base) ??
+      toHttpUrl(obj.src, base) ??
+      toHttpUrl(
+        obj["$"] && typeof obj["$"] === "object"
+          ? (obj["$"] as Record<string, unknown>).url
+          : null,
+        base,
+      );
     if (direct) return direct;
     for (const value of Object.values(obj)) {
-      const found = readNestedUrl(value);
+      const found = readNestedUrl(value, base);
       if (found) return found;
     }
   }
   return null;
 }
 
-function extractRssImage(item: unknown): string | null {
+function extractImageFromHtml(html: unknown, base?: string): string | null {
+  if (typeof html !== "string" || html.trim().length === 0) return null;
+
+  const patterns = [
+    /<img[^>]+(?:src|data-src|data-lazy-src|data-original)=["']([^"']+)["']/i,
+    /<source[^>]+srcset=["']([^"']+)["']/i,
+  ];
+
+  for (const re of patterns) {
+    const match = html.match(re);
+    if (!match?.[1]) continue;
+    const srcset = match[1].trim();
+    const first = srcset.split(",")[0]?.trim().split(/\s+/)[0] ?? srcset;
+    const normalized = toHttpUrl(first, base);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+function extractRssImage(item: unknown, articleUrl?: string): string | null {
   if (!item || typeof item !== "object") return null;
   const obj = item as Record<string, unknown>;
 
   const candidates: unknown[] = [
     obj.enclosure,
     obj["media:content"],
+    obj.mediaContent,
     obj["media:thumbnail"],
+    obj.mediaThumbnail,
     obj["media:group"],
+    obj.mediaGroup,
     obj["content:encoded"],
+    obj.contentEncoded,
     obj.itunes,
     obj.image,
     obj.thumbnail,
   ];
 
   for (const candidate of candidates) {
-    const found = readNestedUrl(candidate);
+    const found = readNestedUrl(candidate, articleUrl);
     if (found) return found;
   }
+
+  const htmlFallback =
+    extractImageFromHtml(obj["content:encoded"], articleUrl) ??
+    extractImageFromHtml(obj.contentEncoded, articleUrl) ??
+    extractImageFromHtml(obj.content, articleUrl) ??
+    extractImageFromHtml(obj.summary, articleUrl);
+  if (htmlFallback) return htmlFallback;
 
   return null;
 }
@@ -121,7 +174,7 @@ async function fetchFeed({
             ? new Date(item.pubDate)
             : new Date();
         if (publishedAt.getTime() < cutoff) return null;
-        const imageUrl = extractRssImage(item);
+        const imageUrl = extractRssImage(item, item.link);
         return {
           title: cleanTitle(item.title),
           url: item.link,
