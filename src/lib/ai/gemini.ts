@@ -444,9 +444,11 @@ export class GeminiProvider implements AIProvider {
       "Summary rules:",
       "- Write clearly and directly. Not dumbed down, not patronising — 'a well-read friend explaining what happened'.",
       "- Cut the filler: boilerplate, background everyone knows, hedging caveats, quote padding.",
-      "- Keep every important number and statistic (amounts, percentages, dates, counts, money, casualty figures). Embed them naturally.",
+      "- Keep every important number and specific (amounts, percentages, dates, counts, money, timelines, named products/models, quoted terms of a deal). Embed them naturally.",
+      "- If this is about a deal/investment/partnership: state the terms and what each side gets (cash/equity, compute, exclusivity, access, governance/board rights, timelines, conditions) if the article provides it.",
+      "- If the article mentions uncertainty or 'talks': be explicit about what is confirmed vs. not.",
       "- Name the key people, places, and organisations involved.",
-      "- 3 to 5 sentences. No headings, no bullet points, no preamble.",
+      "- 4 to 6 sentences. Dense but readable. No headings, no bullet points, no preamble.",
       "- Use British English.",
       hasContent
         ? "- The article body below is authoritative — do not contradict it."

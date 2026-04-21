@@ -124,7 +124,7 @@ export default async function Home({
       <Suspense fallback={null}>
         <ScrollRestore />
       </Suspense>
-      <div className="mb-8 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:mb-10 sm:px-0">
+      <div className="no-scrollbar mb-8 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:mb-10 sm:px-0">
         <TagChips
           tags={tags}
           activeTagId={activeTag?.id ?? null}

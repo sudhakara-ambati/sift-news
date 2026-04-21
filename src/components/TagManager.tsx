@@ -56,13 +56,18 @@ function NewTagForm() {
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-white hover:border-white/30 hover:bg-white/10"
-      >
-        + Add tag
-      </button>
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-white hover:border-white/30 hover:bg-white/10"
+        >
+          + Add tag
+        </button>
+        {postCreateStatus && (
+          <p className="text-xs text-white/60">{postCreateStatus}</p>
+        )}
+      </div>
     );
   }
 
@@ -80,7 +85,8 @@ function NewTagForm() {
             setQueryTerms("");
 
             // Fetch articles for the new tag without blocking tag creation UX.
-            setPostCreateStatus("Fetching articles…");
+            setPostCreateStatus("Tag added. Fetching articles…");
+            router.refresh();
             startTransition(async () => {
               const refreshed = await refreshTagArticles(res.id);
               setPostCreateStatus(
@@ -141,8 +147,9 @@ function NewTagForm() {
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <p className="text-xs text-white/50">
-        Tip: after adding a tag, Sift fetches articles in the background. You can also use{" "}
-        <span className="whitespace-nowrap">Refresh tag</span> in the header any time.
+        Tip: after adding a tag, Sift fetches articles in the background. You
+        can also use <span className="whitespace-nowrap">Refresh tag</span> in
+        the header any time.
       </p>
       {postCreateStatus && (
         <p className="text-xs text-white/60">{postCreateStatus}</p>
