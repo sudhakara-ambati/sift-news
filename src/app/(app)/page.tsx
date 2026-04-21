@@ -4,6 +4,8 @@ import ArticleList from "@/components/ArticleList";
 import TagChips from "@/components/TagChips";
 import ScrollRestore from "@/components/ScrollRestore";
 
+export const dynamic = "force-dynamic";
+
 const FEED_LIMIT = 50;
 const OVERFETCH = 200;
 // Per-source cap in the top of the feed so one outlet (e.g. The Verge's

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import TagManager from "@/components/TagManager";
 
+export const dynamic = "force-dynamic";
+
 export default async function TagsPage() {
   const tags = await prisma.tag.findMany({
     orderBy: { name: "asc" },

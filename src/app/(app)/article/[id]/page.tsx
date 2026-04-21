@@ -6,6 +6,8 @@ import ChatPanel from "@/components/ChatPanel";
 import ArticleSummary from "@/components/ArticleSummary";
 import ArticleImage from "@/components/ArticleImage";
 
+export const dynamic = "force-dynamic";
+
 function parseTerms(raw: string | null): string[] {
   if (!raw) return [];
   try {

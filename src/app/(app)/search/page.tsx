@@ -12,6 +12,8 @@ import {
 import { hydrateImages } from "@/lib/news/og-image";
 import { persistScoredArticles } from "@/lib/news/persist";
 
+export const dynamic = "force-dynamic";
+
 const RESULT_LIMIT = 40;
 
 // Split on commas so multi-word terms like "Sam Altman" stay intact.
