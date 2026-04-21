@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAIProvider } from "@/lib/ai";
+import type { ChatTurn } from "@/lib/ai";
 import { AllModelsExhaustedError } from "@/lib/ai/gemini";
 import { getArticleContent } from "@/lib/content-extractor";
 
@@ -87,6 +88,13 @@ export async function POST(
 
   let streamResult: { stream: AsyncIterable<string>; model: string };
   try {
+    const mappedHistory: ChatTurn[] = history
+      .map((h): ChatTurn => ({
+        role: h.role === "assistant" ? "assistant" : "user",
+        content: h.content,
+      }))
+      .reverse();
+
     streamResult = await provider.askAboutArticleStream({
       article: {
         title: article.title,
@@ -96,10 +104,7 @@ export async function POST(
         snippet: article.snippet,
       },
       question,
-      history: history.map((h) => ({
-        role: h.role === "assistant" ? "assistant" : "user",
-        content: h.content,
-      })).reverse(),
+      history: mappedHistory,
     });
   } catch (err) {
     console.error("AI chat stream setup failed:", err);
