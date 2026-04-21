@@ -115,7 +115,7 @@ function NewTagForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Israel-Iran war"
-          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none"
+          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-[16px] text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none sm:text-sm"
         />
       </div>
       <div>
@@ -142,7 +142,7 @@ function NewTagForm() {
           placeholder={
             '"UK politics" OR Westminster OR "Downing Street"'
           }
-          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none"
+          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 font-mono text-[16px] text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none sm:text-xs"
         />
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
@@ -259,7 +259,7 @@ function EditTagForm({
           maxLength={60}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-[16px] text-white focus:border-white/30 focus:outline-none sm:text-sm"
         />
       </div>
       <div>
@@ -283,7 +283,7 @@ function EditTagForm({
           rows={3}
           value={queryTerms}
           onChange={(e) => setQueryTerms(e.target.value)}
-          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white focus:border-white/30 focus:outline-none"
+          className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 font-mono text-[16px] text-white focus:border-white/30 focus:outline-none sm:text-xs"
         />
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}

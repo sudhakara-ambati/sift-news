@@ -140,7 +140,7 @@ export default function ChatPanel({ articleId, initialMessages }: Props) {
           rows={1}
           placeholder="Ask a question…"
           disabled={pending}
-          className="min-h-[2.5rem] flex-1 resize-none rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none disabled:opacity-50"
+          className="min-h-[2.5rem] flex-1 resize-none rounded-md border border-white/10 bg-black/30 px-3 py-2 text-[16px] text-white placeholder:text-white/30 focus:border-white/30 focus:outline-none disabled:opacity-50 sm:text-sm"
         />
         <button
           type="submit"
