@@ -2,6 +2,23 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 
+function stripOuterQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function normaliseAdminPasswordHash(value: string): string {
+  // Local `.env` commonly escapes `$` as `\$` to avoid env expansion. If that
+  // value gets copied into hosted env vars, bcrypt comparisons will fail.
+  return stripOuterQuotes(value).replace(/\\\$/g, "$");
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -13,8 +30,14 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null;
 
-        const adminUsername = process.env.ADMIN_USERNAME;
-        const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+        const adminUsernameRaw = process.env.ADMIN_USERNAME;
+        const adminPasswordHashRaw = process.env.ADMIN_PASSWORD_HASH;
+        const adminUsername = adminUsernameRaw
+          ? stripOuterQuotes(adminUsernameRaw)
+          : null;
+        const adminPasswordHash = adminPasswordHashRaw
+          ? normaliseAdminPasswordHash(adminPasswordHashRaw)
+          : null;
         if (!adminUsername || !adminPasswordHash) return null;
 
         const usernameMatches = credentials.username === adminUsername;

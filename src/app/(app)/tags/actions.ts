@@ -29,12 +29,7 @@ export async function createTag(formData: FormData): Promise<ActionResult> {
   const existing = await prisma.tag.findUnique({ where: { name } });
   if (existing) return { ok: false, error: "A tag with that name already exists." };
 
-  const created = await prisma.tag.create({ data: { name, queryTerms } });
-  try {
-    await runTagFetch(created.id, created.queryTerms);
-  } catch (err) {
-    console.error("Initial tag fetch failed:", err);
-  }
+  await prisma.tag.create({ data: { name, queryTerms } });
   revalidatePath("/tags");
   revalidatePath("/");
   return { ok: true };
@@ -61,13 +56,7 @@ export async function updateTag(
     select: { queryTerms: true },
   });
   await prisma.tag.update({ where: { id }, data: { name, queryTerms } });
-  if (before && before.queryTerms !== queryTerms) {
-    try {
-      await runTagFetch(id, queryTerms);
-    } catch (err) {
-      console.error("Tag refetch after edit failed:", err);
-    }
-  }
+  void before;
   revalidatePath("/tags");
   revalidatePath("/");
   return { ok: true };

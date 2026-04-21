@@ -120,6 +120,10 @@ function NewTagForm() {
         />
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
+      <p className="text-xs text-white/50">
+        Tip: new tags won&apos;t fetch articles immediately — use{" "}
+        <span className="whitespace-nowrap">Refresh tag</span> on the header or wait for the next scheduled fetch.
+      </p>
       <div className="flex gap-2">
         <button
           type="submit"

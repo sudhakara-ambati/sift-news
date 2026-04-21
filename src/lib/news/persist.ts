@@ -85,10 +85,29 @@ export async function runTagFetch(
   );
 
   const ranked = [...scored].sort((a, b) => b.score - a.score);
-  const toHydrate = ranked.slice(0, 60);
-  const hydrated = await hydrateImages(toHydrate);
-  const hydratedByUrl = new Map(hydrated.map((a) => [a.url, a]));
-  const finalScored = scored.map((a) => hydratedByUrl.get(a.url) ?? a);
+
+  const persistLimit = Number.parseInt(
+    process.env.TAG_PERSIST_LIMIT ?? "120",
+    10,
+  );
+  const toPersist =
+    Number.isFinite(persistLimit) && persistLimit > 0
+      ? ranked.slice(0, persistLimit)
+      : ranked;
+
+  const enableOgHydration = process.env.HYDRATE_OG_IMAGES === "1";
+  const hydrationLimit = Number.parseInt(
+    process.env.HYDRATE_OG_IMAGES_LIMIT ?? "8",
+    10,
+  );
+
+  let finalScored = toPersist;
+  if (enableOgHydration) {
+    const toHydrate = toPersist.slice(0, Math.max(0, hydrationLimit));
+    const hydrated = await hydrateImages(toHydrate);
+    const hydratedByUrl = new Map(hydrated.map((a) => [a.url, a]));
+    finalScored = toPersist.map((a) => hydratedByUrl.get(a.url) ?? a);
+  }
 
   const counts = await persistScoredArticles(finalScored);
   return { fetched: raw.length, ...counts };
