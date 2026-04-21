@@ -34,3 +34,17 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Scheduled news fetching (free)
+
+Vercel Hobby only allows daily Vercel Cron Jobs. This repo uses GitHub Actions to call the protected cron endpoint every 3 hours:
+
+- Endpoint: `GET /api/cron/fetch-news` (requires `CRON_SECRET`)
+- Workflow: `.github/workflows/fetch-news-cron.yml`
+
+### Setup
+
+1. In Vercel project env vars, set `CRON_SECRET` to a long random value.
+2. In GitHub repo Settings → Secrets and variables → Actions, add:
+   - `CRON_URL` = `https://<your-deployment-domain>/api/cron/fetch-news`
+   - `CRON_SECRET` = the same value as Vercel `CRON_SECRET`
