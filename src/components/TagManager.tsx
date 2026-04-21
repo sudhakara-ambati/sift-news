@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   createTag,
   deleteTag,
@@ -8,6 +9,7 @@ import {
   purgeTagArticles,
   updateTag,
 } from "@/app/(app)/tags/actions";
+import { refreshTagArticles } from "@/app/(app)/actions";
 
 type TagRow = {
   id: string;
@@ -34,12 +36,14 @@ export default function TagManager({ tags }: { tags: TagRow[] }) {
 }
 
 function NewTagForm() {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [queryTerms, setQueryTerms] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [postCreateStatus, setPostCreateStatus] = useState<string | null>(null);
 
   async function handleGenerate() {
     setError(null);
@@ -66,6 +70,7 @@ function NewTagForm() {
     <form
       action={(fd) => {
         setError(null);
+        setPostCreateStatus(null);
         startTransition(async () => {
           const res = await createTag(fd);
           if (!res.ok) setError(res.error);
@@ -73,6 +78,21 @@ function NewTagForm() {
             setOpen(false);
             setName("");
             setQueryTerms("");
+
+            // Fetch articles for the new tag without blocking tag creation UX.
+            setPostCreateStatus("Fetching articles…");
+            startTransition(async () => {
+              const refreshed = await refreshTagArticles(res.id);
+              setPostCreateStatus(
+                refreshed.ok
+                  ? refreshed.inserted > 0
+                    ? `Fetched +${refreshed.inserted} new`
+                    : "Up to date"
+                  : refreshed.error,
+              );
+              router.refresh();
+              setTimeout(() => setPostCreateStatus(null), 5000);
+            });
           }
         });
       }}
@@ -121,9 +141,12 @@ function NewTagForm() {
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <p className="text-xs text-white/50">
-        Tip: new tags won&apos;t fetch articles immediately — use{" "}
-        <span className="whitespace-nowrap">Refresh tag</span> on the header or wait for the next scheduled fetch.
+        Tip: after adding a tag, Sift fetches articles in the background. You can also use{" "}
+        <span className="whitespace-nowrap">Refresh tag</span> in the header any time.
       </p>
+      {postCreateStatus && (
+        <p className="text-xs text-white/60">{postCreateStatus}</p>
+      )}
       <div className="flex gap-2">
         <button
           type="submit"

@@ -6,6 +6,7 @@ import { runTagFetch } from "@/lib/news/persist";
 import { getAIProvider } from "@/lib/ai";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
+type CreateTagResult = { ok: true; id: string } | { ok: false; error: string };
 
 function normaliseName(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
@@ -19,7 +20,7 @@ function validate(name: string, queryTerms: string): string | null {
   return null;
 }
 
-export async function createTag(formData: FormData): Promise<ActionResult> {
+export async function createTag(formData: FormData): Promise<CreateTagResult> {
   const name = normaliseName(String(formData.get("name") ?? ""));
   const queryTerms = String(formData.get("queryTerms") ?? "").trim();
 
@@ -29,10 +30,13 @@ export async function createTag(formData: FormData): Promise<ActionResult> {
   const existing = await prisma.tag.findUnique({ where: { name } });
   if (existing) return { ok: false, error: "A tag with that name already exists." };
 
-  await prisma.tag.create({ data: { name, queryTerms } });
+  const created = await prisma.tag.create({
+    data: { name, queryTerms },
+    select: { id: true },
+  });
   revalidatePath("/tags");
   revalidatePath("/");
-  return { ok: true };
+  return { ok: true, id: created.id };
 }
 
 export async function updateTag(
