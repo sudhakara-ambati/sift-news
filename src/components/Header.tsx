@@ -6,7 +6,7 @@ import SearchBar from "@/components/SearchBar";
 
 export default function Header() {
   return (
-    <header className="sticky top-0 z-20 border-b border-white/10 bg-black/85 pt-[env(safe-area-inset-top)] backdrop-blur">
+    <header className="safe-area-top sticky top-0 z-20 border-b border-white/10 bg-black/85 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
         <div className="flex items-baseline gap-5 sm:gap-6">
           <Link
