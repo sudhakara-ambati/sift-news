@@ -23,12 +23,15 @@ function parseKeywords(raw: string): string[] {
   return raw
     .split(",")
     .map((s) => s.trim())
-    .filter((s) => s.length >= 2);
+    .filter(Boolean)
+    .filter(
+      (s, i, arr) => arr.findIndex((x) => x.toLowerCase() === s.toLowerCase()) === i,
+    );
 }
 
 function buildNewsApiQuery(keywords: string[]): string {
   return keywords
-    .map((k) => (/\s/.test(k) ? `"${k}"` : k))
+    .map((k) => `"${k.replace(/"/g, '\\"')}"`)
     .join(" OR ");
 }
 
