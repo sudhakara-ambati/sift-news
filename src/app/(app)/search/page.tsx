@@ -7,12 +7,13 @@ import { filterBlockedArticles } from "@/lib/news/filters";
 import {
   clusterAndScore,
   dedupeByUrl,
+  mergeDuplicateStories,
   type ClusteredArticle,
 } from "@/lib/news/ranking";
 import { hydrateImages } from "@/lib/news/og-image";
-import { persistScoredArticles } from "@/lib/news/persist";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const RESULT_LIMIT = 40;
 
@@ -74,11 +75,13 @@ export default async function SearchPage({
 
   let articles: React.ComponentProps<typeof ArticleList>["articles"] = [];
   let error: string | null = null;
+  let newsapiHitCount = 0;
 
   if (hasQuery) {
     try {
       const query = buildNewsApiQuery(keywords);
       const fetched = await fetchEverythingForKeywords(query);
+      newsapiHitCount = fetched.length;
       const filtered = filterBlockedArticles(fetched);
       const deduped = dedupeByUrl(filtered);
       const scored = clusterAndScore(deduped, () => false, []);
@@ -105,26 +108,74 @@ export default async function SearchPage({
       const hydratedByUrl = new Map(hydrated.map((a) => [a.url, a]));
       const finalTop = top.map((a) => hydratedByUrl.get(a.url) ?? a);
 
-      await persistScoredArticles(finalTop);
+      // Upsert inline so we collect IDs directly rather than relying on a
+      // follow-up findMany — that second round-trip has been observed to
+      // return empty on Vercel when the write replica hadn't propagated yet
+      // to the read path, surfacing as a spurious "No results" page.
+      const persisted = await Promise.all(
+        finalTop.map(async (a) => {
+          try {
+            const upserted = await prisma.article.upsert({
+              where: { url: a.url },
+              create: {
+                title: a.title,
+                url: a.url,
+                source: a.source,
+                publishedAt: a.publishedAt,
+                snippet: a.snippet,
+                imageUrl: a.imageUrl ?? null,
+                clusterId: a.clusterId,
+                score: a.score,
+                isHeadline: false,
+              },
+              update: {
+                title: a.title,
+                source: a.source,
+                publishedAt: a.publishedAt,
+                snippet: a.snippet,
+                clusterId: a.clusterId,
+                score: a.score,
+                ...(a.imageUrl ? { imageUrl: a.imageUrl } : {}),
+              },
+              select: {
+                id: true,
+                title: true,
+                url: true,
+                source: true,
+                publishedAt: true,
+                snippet: true,
+                imageUrl: true,
+                clusterId: true,
+              },
+            });
+            return upserted;
+          } catch (err) {
+            console.error("search upsert failed:", a.url, err);
+            return null;
+          }
+        }),
+      );
+      const persistedArticles = persisted.filter(
+        (a): a is NonNullable<typeof a> => !!a,
+      );
 
-      const urls = finalTop.map((a) => a.url);
-      const dbArticles = await prisma.article.findMany({
-        where: { url: { in: urls } },
-        select: {
-          id: true,
-          title: true,
-          url: true,
-          source: true,
-          publishedAt: true,
-          snippet: true,
-          imageUrl: true,
-        },
-      });
-      const byUrl = new Map(dbArticles.map((a) => [a.url, a]));
-      articles = finalTop
-        .map((a) => byUrl.get(a.url))
-        .filter((a): a is (typeof dbArticles)[number] => !!a)
-        .map((a) => ({ ...a, otherSources: [] }));
+      // Cluster IDs across DB runs can fragment near-duplicate stories, so
+      // do the same post-selection merge the home feed uses.
+      const { primaries: mergedPrimaries, othersByPrimary } =
+        mergeDuplicateStories(persistedArticles);
+
+      articles = mergedPrimaries.map((a) => ({
+        id: a.id,
+        title: a.title,
+        url: a.url,
+        source: a.source,
+        publishedAt: a.publishedAt,
+        snippet: a.snippet,
+        imageUrl: a.imageUrl,
+        otherSources: (othersByPrimary.get(a.id) ?? []).filter(
+          (s) => s !== a.source,
+        ),
+      }));
     } catch (err) {
       console.error("search failed:", err);
       error = "Search failed — try again.";
@@ -167,7 +218,9 @@ export default async function SearchPage({
         </div>
       ) : hasQuery && articles.length === 0 ? (
         <div className="rounded-lg border border-white/10 p-10 text-center text-sm text-white/55">
-          No results. Try fewer or different keywords.
+          {newsapiHitCount === 0
+            ? "No news found for those keywords. Try different ones — or the daily NewsAPI budget may be exhausted."
+            : "No results. Try fewer or different keywords."}
         </div>
       ) : hasQuery ? (
         <ArticleList articles={articles} />

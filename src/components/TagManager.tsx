@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   createTag,
   deleteTag,
@@ -18,31 +19,24 @@ type TagRow = {
 };
 
 export default function TagManager({ tags }: { tags: TagRow[] }) {
-  const [localTags, setLocalTags] = useState<TagRow[]>(tags);
-
-  useEffect(() => {
-    setLocalTags(tags);
-  }, [tags]);
+  const [visibleTags, addOptimisticTag] = useOptimistic<TagRow[], TagRow>(
+    tags,
+    (state, created) => {
+      if (state.some((t) => t.id === created.id)) return state;
+      return [...state, created].sort((a, b) => a.name.localeCompare(b.name));
+    },
+  );
 
   return (
     <div className="space-y-6">
-      <NewTagForm
-        onCreated={(created) => {
-          setLocalTags((prev) => {
-            if (prev.some((t) => t.id === created.id)) return prev;
-            return [...prev, created].sort((a, b) =>
-              a.name.localeCompare(b.name),
-            );
-          });
-        }}
-      />
+      <NewTagForm onCreated={addOptimisticTag} />
       <div className="space-y-3">
-        {localTags.length === 0 ? (
+        {visibleTags.length === 0 ? (
           <p className="rounded-lg border border-white/10 p-6 text-center text-sm text-white/60">
             No tags yet. Add one above.
           </p>
         ) : (
-          localTags.map((tag) => <TagRow key={tag.id} tag={tag} />)
+          visibleTags.map((tag) => <TagRow key={tag.id} tag={tag} />)
         )}
       </div>
     </div>
@@ -50,6 +44,7 @@ export default function TagManager({ tags }: { tags: TagRow[] }) {
 }
 
 function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -109,13 +104,17 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
             setPostCreateStatus("Tag added. Fetching articles…");
             void (async () => {
               const refreshed = await refreshTagArticles(res.id);
-              setPostCreateStatus(
-                refreshed.ok
-                  ? refreshed.inserted > 0
-                    ? `Fetched +${refreshed.inserted} new`
-                    : "Up to date"
-                  : refreshed.error,
-              );
+              if (refreshed.ok) {
+                const attached =
+                  "attached" in refreshed ? refreshed.attached ?? 0 : 0;
+                const total = refreshed.inserted + attached;
+                setPostCreateStatus(
+                  total > 0 ? `Fetched +${total} new` : "No matches found yet",
+                );
+              } else {
+                setPostCreateStatus(refreshed.error);
+              }
+              router.refresh();
               setTimeout(() => setPostCreateStatus(null), 5000);
             })();
           }

@@ -8,7 +8,7 @@ import { backfillMissingImages, runFetchPipeline } from "@/lib/news/fetch-pipeli
 import { runTagFetch } from "@/lib/news/persist";
 
 type RefreshResult =
-  | { ok: true; inserted: number; updated: number }
+  | { ok: true; inserted: number; updated: number; attached?: number }
   | { ok: false; error: string };
 
 export async function refreshArticles(): Promise<RefreshResult> {
@@ -60,10 +60,13 @@ export async function refreshTagArticles(
     });
     if (!tag) return { ok: false, error: "Tag not found" };
 
-    const { inserted, updated } = await runTagFetch(tag.id, tag.queryTerms);
+    const { inserted, updated, attached } = await runTagFetch(
+      tag.id,
+      tag.queryTerms,
+    );
     revalidatePath("/");
     revalidatePath("/tags");
-    return { ok: true, inserted, updated };
+    return { ok: true, inserted, updated, attached };
   } catch (err) {
     console.error("refreshTagArticles failed:", err);
     return { ok: false, error: "Fetch failed" };

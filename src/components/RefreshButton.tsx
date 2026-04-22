@@ -59,7 +59,9 @@ export default function RefreshButton() {
       );
 
       if (res.ok) {
-        showStatus(res.inserted > 0 ? `+${res.inserted} new` : "Up to date");
+        const attached = "attached" in res ? res.attached ?? 0 : 0;
+        const newCount = res.inserted + attached;
+        showStatus(newCount > 0 ? `+${newCount} new` : "Up to date");
         router.refresh();
       } else {
         showStatus(res.error);

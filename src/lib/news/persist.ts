@@ -10,6 +10,48 @@ import { hydrateImages } from "@/lib/news/og-image";
 import type { FetchedArticle } from "@/lib/news/types";
 import type { ClusteredArticle } from "@/lib/news/ranking";
 
+// Attach a tag to existing DB articles whose title/source/snippet matches any
+// of the tag's distinctive terms. Without this, newly-created or refreshed
+// tags for popular topics (e.g. Gaza) appear empty because NewsAPI's
+// `/everything` search returned few unique hits, even though the main feed
+// already has dozens of relevant articles from top-headlines and RSS.
+export async function attachTagToExistingArticles(
+  tagId: string,
+  queryTerms: string,
+): Promise<number> {
+  const terms = extractDistinctiveTerms(queryTerms);
+  if (terms.length === 0) return 0;
+
+  const matches = await prisma.article.findMany({
+    where: {
+      tags: { none: { tagId } },
+      OR: terms.flatMap((t) => [
+        { title: { contains: t } },
+        { source: { contains: t } },
+        { snippet: { contains: t } },
+      ]),
+    },
+    select: { id: true },
+    take: 500,
+  });
+  if (matches.length === 0) return 0;
+
+  let attached = 0;
+  await Promise.all(
+    matches.map(async (m) => {
+      try {
+        await prisma.articleTag.create({
+          data: { articleId: m.id, tagId },
+        });
+        attached++;
+      } catch {
+        // Duplicate (race with another writer) — ignore.
+      }
+    }),
+  );
+  return attached;
+}
+
 export type PersistCounts = { inserted: number; updated: number };
 
 export async function persistScoredArticles(
@@ -114,8 +156,15 @@ export async function persistScoredArticles(
 export async function runTagFetch(
   tagId: string,
   queryTerms: string,
-): Promise<PersistCounts & { fetched: number }> {
-  const raw = await fetchEverythingForTag(tagId, queryTerms);
+): Promise<PersistCounts & { fetched: number; attached: number }> {
+  // Two parallel tracks: pull fresh `/everything` hits AND retag any existing
+  // DB articles whose content matches this tag's terms. The retag catches
+  // the common case where NewsAPI returned 0 new hits but the general feed
+  // already has matching coverage (e.g. Gaza headlines in top-headlines).
+  const [raw, attached] = await Promise.all([
+    fetchEverythingForTag(tagId, queryTerms),
+    attachTagToExistingArticles(tagId, queryTerms),
+  ]);
   const filtered = filterBlockedArticles(raw);
   const deduped = dedupeByUrl(filtered);
   const scored = clusterAndScore(
@@ -150,5 +199,5 @@ export async function runTagFetch(
   }
 
   const counts = await persistScoredArticles(finalScored);
-  return { fetched: raw.length, ...counts };
+  return { fetched: raw.length, attached, ...counts };
 }

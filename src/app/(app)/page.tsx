@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import ArticleList from "@/components/ArticleList";
 import TagChips from "@/components/TagChips";
 import ScrollRestore from "@/components/ScrollRestore";
+import { mergeDuplicateStories } from "@/lib/news/ranking";
 
 export const revalidate = 60;
 
@@ -50,13 +51,20 @@ export default async function Home({
   ]);
 
   const primaryByCluster = new Map<string, (typeof candidates)[number]>();
-  const clusterPool: typeof candidates = [];
+  const initialPool: typeof candidates = [];
   for (const article of candidates) {
     const key = article.clusterId ?? `solo_${article.id}`;
     if (primaryByCluster.has(key)) continue;
     primaryByCluster.set(key, article);
-    clusterPool.push(article);
+    initialPool.push(article);
   }
+
+  // Second-pass merge: cluster IDs are regenerated each ingestion run, so
+  // articles about the same story ingested across different runs never share
+  // a clusterId and would otherwise all appear as separate primaries. Merge
+  // by hybrid title similarity.
+  const { primaries: clusterPool, othersByPrimary: crossRunOthers } =
+    mergeDuplicateStories(initialPool);
 
   // Two-pass selection: fill the top window with at most PER_SOURCE_CAP_TOP
   // articles per source (diversity), then backfill to FEED_LIMIT from the
@@ -102,16 +110,23 @@ export default async function Home({
     othersByCluster.get(m.clusterId)!.push(m.source);
   }
 
-  const articles = primaries.map((p) => ({
-    id: p.id,
-    title: p.title,
-    url: p.url,
-    source: p.source,
-    publishedAt: p.publishedAt,
-    snippet: p.snippet,
-    imageUrl: p.imageUrl,
-    otherSources: p.clusterId ? othersByCluster.get(p.clusterId) ?? [] : [],
-  }));
+  const articles = primaries.map((p) => {
+    const clusterOthers = p.clusterId ? othersByCluster.get(p.clusterId) ?? [] : [];
+    const crossRun = crossRunOthers.get(p.id) ?? [];
+    // Dedup by source name so "Reuters" doesn't appear twice when it's in
+    // both the in-run cluster and a cross-run merge.
+    const combined = Array.from(new Set([...clusterOthers, ...crossRun]));
+    return {
+      id: p.id,
+      title: p.title,
+      url: p.url,
+      source: p.source,
+      publishedAt: p.publishedAt,
+      snippet: p.snippet,
+      imageUrl: p.imageUrl,
+      otherSources: combined.filter((s) => s !== p.source),
+    };
+  });
 
   const activeTag = tagId ? tags.find((t) => t.id === tagId) : null;
   const activeView: "general" | "all" | "tag" = activeTag

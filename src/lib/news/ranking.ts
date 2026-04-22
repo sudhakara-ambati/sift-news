@@ -211,13 +211,61 @@ const STOPWORDS = new Set([
   "your",
 ]);
 
-function tokenize(title: string): Set<string> {
-  const words = title
+// Strip outlet attribution appended by aggregators. Google News RSS emits
+// titles like "Big story - TechCrunch" / "Big story | Reuters"; stripping the
+// trailing outlet prevents the source name from inflating token sets and
+// dragging Jaccard below the cluster threshold when the same story is
+// reported by different outlets.
+function stripOutletSuffix(title: string): string {
+  return title
+    .replace(/\s+[-|–—]\s+[A-Z][\w.& '’-]{1,40}\s*$/u, "")
+    .trim();
+}
+
+function tokenizeOrdered(title: string): string[] {
+  return stripOutletSuffix(title)
     .toLowerCase()
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .filter((w) => w.length > 2 && !STOPWORDS.has(w));
-  return new Set(words);
+}
+
+function tokenize(title: string): Set<string> {
+  return new Set(tokenizeOrdered(title));
+}
+
+// Bigrams of content tokens. "housing reform", "interest rates" etc. are
+// far more story-specific than any single word — two outlets sharing one
+// content bigram is a strong signal they cover the same event.
+function bigrams(title: string): Set<string> {
+  const tokens = tokenizeOrdered(title);
+  const out = new Set<string>();
+  for (let i = 0; i < tokens.length - 1; i++) {
+    out.add(`${tokens[i]} ${tokens[i + 1]}`);
+  }
+  return out;
+}
+
+// Entities = capitalised tokens of length >=3, normalised to drop trailing
+// possessives ("Anthropic's" → "anthropic") so the same proper noun matches
+// across articles regardless of punctuation. Sentence-starting common words
+// (The, After) get filtered by STOPWORDS.
+function extractEntities(title: string): Set<string> {
+  const stripped = stripOutletSuffix(title);
+  const tokens = stripped.split(/[^\w'’-]+/).filter(Boolean);
+  const entities = new Set<string>();
+  for (const t of tokens) {
+    const first = t[0];
+    if (first !== first.toUpperCase() || first === first.toLowerCase()) continue;
+    const normalized = t
+      .toLowerCase()
+      .replace(/['’]s$/, "")
+      .replace(/['’]/g, "");
+    if (normalized.length < 3) continue;
+    if (STOPWORDS.has(normalized)) continue;
+    entities.add(normalized);
+  }
+  return entities;
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -226,6 +274,43 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   for (const w of a) if (b.has(w)) intersection++;
   const union = a.size + b.size - intersection;
   return intersection / union;
+}
+
+function setIntersectionSize(a: Set<string>, b: Set<string>): number {
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+  let n = 0;
+  for (const w of small) if (big.has(w)) n++;
+  return n;
+}
+
+// Hybrid similarity. Three independent paths merge articles:
+//   1. Strong overall token overlap (Jaccard ≥ 0.4) — works when wording is
+//      similar across outlets.
+//   2. Two or more shared proper-noun entities + any token overlap — catches
+//      "Anthropic Mythos hack" phrased four different ways; the entity pair
+//      anchors the match even when Jaccard is ~0.25.
+//   3. One shared entity + one shared content bigram + moderate Jaccard —
+//      catches "Starmer housing reform" where only one entity is shared but
+//      a distinctive content phrase ("housing reform") nails it.
+// Without path 3, single-entity stories with diverging outlet wording would
+// stay fragmented even when all outlets mention the same key action phrase.
+function areSameStory(
+  aTokens: Set<string>,
+  bTokens: Set<string>,
+  aEntities: Set<string>,
+  bEntities: Set<string>,
+  aBigrams: Set<string>,
+  bBigrams: Set<string>,
+): boolean {
+  const j = jaccard(aTokens, bTokens);
+  if (j >= 0.4) return true;
+  const sharedEntities = setIntersectionSize(aEntities, bEntities);
+  if (sharedEntities >= 2 && j >= 0.18) return true;
+  if (sharedEntities >= 1 && j >= 0.28) {
+    const sharedBigrams = setIntersectionSize(aBigrams, bBigrams);
+    if (sharedBigrams >= 1) return true;
+  }
+  return false;
 }
 
 export type ClusteredArticle = FetchedArticle & {
@@ -293,7 +378,12 @@ export function clusterAndScore(
   hasActiveTagBonus: (article: FetchedArticle) => boolean,
   titleMatchTerms: string[] = [],
 ): ClusteredArticle[] {
-  const tokenized = articles.map((a) => ({ article: a, tokens: tokenize(a.title) }));
+  const tokenized = articles.map((a) => ({
+    article: a,
+    tokens: tokenize(a.title),
+    entities: extractEntities(a.title),
+    bigrams: bigrams(a.title),
+  }));
 
   const clusters: { id: string; members: number[] }[] = [];
 
@@ -302,7 +392,16 @@ export function clusterAndScore(
     for (const cluster of clusters) {
       const repIdx = cluster.members[0];
       const rep = tokenized[repIdx];
-      if (jaccard(entry.tokens, rep.tokens) > 0.45) {
+      if (
+        areSameStory(
+          entry.tokens,
+          rep.tokens,
+          entry.entities,
+          rep.entities,
+          entry.bigrams,
+          rep.bigrams,
+        )
+      ) {
         cluster.members.push(i);
         assigned = true;
         break;
@@ -375,6 +474,70 @@ function titleMatchStrength(
     if (hits >= 2) return 1;
   }
   return hits >= 1 ? 0.6 : 0;
+}
+
+// Collapse near-duplicate stories across cluster boundaries. Cluster IDs are
+// only stable within a single ingestion run — two articles ingested in
+// different cron runs never share a clusterId even when they're the same
+// story. At render time we re-compare titles using the same hybrid
+// similarity used during clustering; winners keep their ID, losers point at
+// the winner's ID and carry the loser's source into `others`.
+export type MergeableArticle = {
+  id: string;
+  title: string;
+  source: string;
+  clusterId: string | null;
+  score?: number | null;
+  publishedAt?: Date;
+};
+
+export type MergeResult<T extends MergeableArticle> = {
+  primaries: T[];
+  othersByPrimary: Map<string, string[]>;
+};
+
+export function mergeDuplicateStories<T extends MergeableArticle>(
+  articles: T[],
+): MergeResult<T> {
+  const enriched = articles.map((a) => ({
+    article: a,
+    tokens: tokenize(a.title),
+    entities: extractEntities(a.title),
+    bigrams: bigrams(a.title),
+  }));
+
+  const primaryIndexes: number[] = [];
+  const mergedInto = new Map<number, number>(); // loser idx -> primary idx
+
+  enriched.forEach((entry, i) => {
+    for (const pi of primaryIndexes) {
+      const primary = enriched[pi];
+      if (
+        areSameStory(
+          entry.tokens,
+          primary.tokens,
+          entry.entities,
+          primary.entities,
+          entry.bigrams,
+          primary.bigrams,
+        )
+      ) {
+        mergedInto.set(i, pi);
+        return;
+      }
+    }
+    primaryIndexes.push(i);
+  });
+
+  const primaries = primaryIndexes.map((i) => enriched[i].article);
+  const othersByPrimary = new Map<string, string[]>();
+  for (const [loserIdx, primaryIdx] of mergedInto) {
+    const primaryId = enriched[primaryIdx].article.id;
+    const loserSource = enriched[loserIdx].article.source;
+    if (!othersByPrimary.has(primaryId)) othersByPrimary.set(primaryId, []);
+    othersByPrimary.get(primaryId)!.push(loserSource);
+  }
+  return { primaries, othersByPrimary };
 }
 
 export function dedupeByUrl(articles: FetchedArticle[]): FetchedArticle[] {
