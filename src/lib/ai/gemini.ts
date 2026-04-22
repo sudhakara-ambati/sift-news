@@ -363,6 +363,68 @@ function normaliseBooleanOperators(text: string): string {
   return text.replace(/\b(and|or|not)\b/gi, (m) => m.toUpperCase());
 }
 
+function estimateTermCount(query: string): number {
+  return query
+    .split(/\b(?:AND|OR)\b/)
+    .map((s) => s.replace(/[()]/g, " ").trim())
+    .filter(Boolean).length;
+}
+
+function queryQualityScore(query: string, tagName: string): number {
+  const q = query.trim();
+  const termCount = estimateTermCount(q);
+  const andCount = (q.match(/\bAND\b/g) ?? []).length;
+  const orCount = (q.match(/\bOR\b/g) ?? []).length;
+  const quotedCount = (q.match(/"/g) ?? []).length / 2;
+
+  let score = 0;
+  score += termCount * 5;
+  score += andCount * 6;
+  score += orCount * 2;
+  score += Math.min(quotedCount, 8) * 1.5;
+  score += Math.min(q.length, 420) / 50;
+
+  // Strong penalty for ultra-short queries that tend to be low-signal.
+  if (termCount <= 2) score -= 20;
+
+  // Compound topics should usually have at least one AND group.
+  if (
+    /\b(war|conflict|crisis|sanctions|ceasefire|regulation|policy)\b/i.test(tagName) &&
+    andCount === 0
+  ) {
+    score -= 8;
+  }
+
+  return score;
+}
+
+function isWeakQuery(query: string): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  if (q.length < 24) return true;
+  const termCount = estimateTermCount(q);
+  if (termCount <= 2) return true;
+  return false;
+}
+
+function pickBestQuery(candidates: string[], tagName: string): string | null {
+  const unique = Array.from(
+    new Set(
+      candidates
+        .map((c) => ensureGroupedOrQuery(normaliseBooleanOperators(sanitizeQuery(c))))
+        .filter(Boolean),
+    ),
+  );
+  if (unique.length === 0) return null;
+
+  const valid = unique.filter(isLikelyQuery);
+  if (valid.length === 0) return null;
+
+  return [...valid].sort(
+    (a, b) => queryQualityScore(b, tagName) - queryQualityScore(a, tagName),
+  )[0];
+}
+
 function ensureGroupedOrQuery(text: string): string {
   const q = text.trim();
   const hasOr = /\bOR\b/.test(q);
@@ -395,16 +457,17 @@ function extractBestQuery(raw: string, tagName: string): string {
     ...(jsonQuery ? [jsonQuery] : []),
     direct,
     ...lineCandidates,
-  ].map((c) => sanitizeQuery(c));
+  ];
 
+  const expanded = [...candidates];
   for (const candidate of candidates) {
-    if (isLikelyQuery(candidate)) {
-      return ensureGroupedOrQuery(normaliseBooleanOperators(candidate));
-    }
     const orQuery = buildOrQueryFromCommaList(candidate);
-    if (orQuery && isLikelyQuery(orQuery)) {
-      return ensureGroupedOrQuery(normaliseBooleanOperators(orQuery));
-    }
+    if (orQuery) expanded.push(orQuery);
+  }
+
+  const best = pickBestQuery(expanded, tagName);
+  if (best) {
+    return best;
   }
 
   return ensureGroupedOrQuery(
@@ -473,23 +536,7 @@ async function draftTagQuery(name: string): Promise<string> {
 
   const { value: raw } = await withModelFallback(async (modelName) => {
     const client = getClient();
-    const model = client.getGenerativeModel(
-      isGemma(modelName)
-        ? { model: modelName }
-        : {
-            model: modelName,
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  query: { type: SchemaType.STRING },
-                },
-                required: ["query"],
-              },
-            },
-          },
-    );
+    const model = client.getGenerativeModel({ model: modelName });
     const result = await withRetry(() => model.generateContent(prompt));
     return result.response.text().trim();
   });
@@ -530,23 +577,7 @@ async function refineTagQuery(name: string, draft: string): Promise<string> {
 
   const { value: raw } = await withModelFallback(async (modelName) => {
     const client = getClient();
-    const model = client.getGenerativeModel(
-      isGemma(modelName)
-        ? { model: modelName }
-        : {
-            model: modelName,
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  query: { type: SchemaType.STRING },
-                },
-                required: ["query"],
-              },
-            },
-          },
-    );
+    const model = client.getGenerativeModel({ model: modelName });
     const result = await withRetry(() => model.generateContent(prompt));
     return result.response.text().trim();
   });
@@ -714,10 +745,17 @@ export class GeminiProvider implements AIProvider {
 
   async generateTagQuery({ name }: { name: string }): Promise<string> {
     const draft = await draftTagQuery(name);
-    if (process.env.AI_TAG_QUERY_REFINE !== "1") {
-      return extractBestQuery(draft, name);
+    const draftBest = extractBestQuery(draft, name);
+    const shouldRefine =
+      process.env.AI_TAG_QUERY_REFINE === "1" || isWeakQuery(draftBest);
+    if (!shouldRefine) return draftBest;
+
+    try {
+      const refined = await refineTagQuery(name, draftBest);
+      return pickBestQuery([draftBest, refined], name) ?? draftBest;
+    } catch {
+      // If refinement fails (quota/transient), keep the usable draft.
+      return draftBest;
     }
-    const refined = await refineTagQuery(name, draft);
-    return extractBestQuery(refined, name) || extractBestQuery(draft, name);
   }
 }
