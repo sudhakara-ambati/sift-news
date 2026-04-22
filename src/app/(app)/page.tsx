@@ -22,12 +22,13 @@ export default async function Home({
   const { tag: tagId, view } = await searchParams;
 
   // Feed filter: tag chip wins, then view=all (any tagged article), then
-  // default (isHeadline = true — global top-headlines + RSS + lab domains).
+  // default General — top headlines NOT matching any user tag, so General
+  // and All don't show the same overlap of tag-adjacent world news.
   const where = tagId
     ? { tags: { some: { tagId } } }
     : view === "all"
       ? { tags: { some: {} } }
-      : { isHeadline: true };
+      : { isHeadline: true, tags: { none: {} } };
 
   const [tags, candidates] = await Promise.all([
     prisma.tag.findMany({ orderBy: { name: "asc" } }),

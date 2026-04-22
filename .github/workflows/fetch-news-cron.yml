@@ -32,6 +32,13 @@ jobs:
             exit 1
           fi
 
-          curl -fsS "$CRON_URL" \
+          echo "Fetching news at $(date -u +%FT%TZ)"
+          response=$(curl -fsS "$CRON_URL" \
             -H "authorization: Bearer $CRON_SECRET" \
-            -H "user-agent: github-actions-cron"
+            -H "user-agent: github-actions-cron")
+          echo "Response: $response"
+          # Fail the job if the pipeline didn't process any articles.
+          if ! echo "$response" | grep -q '"ok":true'; then
+            echo "Cron endpoint did not return ok:true"
+            exit 1
+          fi
