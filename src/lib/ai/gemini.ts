@@ -458,6 +458,38 @@ function ensureGroupedOrQuery(text: string): string {
   return q;
 }
 
+function needsBroadCoverage(tagName: string): boolean {
+  return /\b(war|conflict|crisis|hostilities|ceasefire|sanctions)\b/i.test(tagName);
+}
+
+function isWeakTagQuery(query: string, tagName: string): boolean {
+  const termCount = estimateTermCount(query);
+  if (termCount < 6) return true;
+  if (query.length < 60) return true;
+  if (needsBroadCoverage(tagName) && !/\bAND\b/.test(query)) return true;
+  return false;
+}
+
+const TAG_QUERY_TEMPLATES: { pattern: RegExp; query: string }[] = [
+  {
+    pattern: /\b(gaza|palestin(?:e|ian|ians))\b/i,
+    query:
+      '(Gaza OR "Gaza Strip" OR Rafah OR "Khan Younis" OR "Deir al-Balah" OR Palestine OR Palestinian OR Palestinians OR UNRWA) AND (Israel OR Israeli OR IDF OR Hamas OR ceasefire OR truce OR hostage OR "humanitarian aid")',
+  },
+  {
+    pattern: /\b(?:israel.*iran|iran.*israel)\b/i,
+    query:
+      '(Israel OR Jerusalem OR IDF OR Netanyahu) AND (Iran OR Tehran OR IRGC OR "Islamic Revolutionary Guard Corps" OR Khamenei OR "Supreme Leader" OR Hezbollah OR "Axis of Resistance" OR "nuclear programme")',
+  },
+];
+
+function getTemplateQuery(tagName: string): string | null {
+  for (const t of TAG_QUERY_TEMPLATES) {
+    if (t.pattern.test(tagName)) return t.query;
+  }
+  return null;
+}
+
 function extractBestQuery(raw: string, tagName: string): string {
   const direct = sanitizeQuery(raw);
   const jsonQuery = tryParseQueryJson(raw);
@@ -470,9 +502,8 @@ function extractBestQuery(raw: string, tagName: string): string {
         .replace(/^\s*(?:[-*]|\d+[.)])\s*/, "")
         .replace(/^\s*(?:query|improved query|final query)\s*:\s*/i, "")
         .trim();
-      const fromArrow = stripped.includes("→")
-        ? stripped.split("→").slice(1).join("→").trim()
-        : "";
+      const arrowMatch = stripped.match(/(?:->|=>|\u2192)\s*(.+)$/);
+      const fromArrow = arrowMatch?.[1]?.trim() ?? "";
       return [stripped, fromArrow].filter(Boolean);
     });
 
@@ -776,9 +807,14 @@ export class GeminiProvider implements AIProvider {
   }
 
   async generateTagQuery({ name }: { name: string }): Promise<string> {
+    const template = getTemplateQuery(name);
+    if (template) return template;
+
     const draft = await draftTagQuery(name);
     const draftBest = extractBestQuery(draft, name);
-    if (process.env.AI_TAG_QUERY_REFINE !== "1") return draftBest;
+    const shouldRefine =
+      process.env.AI_TAG_QUERY_REFINE === "1" || isWeakTagQuery(draftBest, name);
+    if (!shouldRefine) return draftBest;
 
     try {
       const refined = await refineTagQuery(name, draftBest);

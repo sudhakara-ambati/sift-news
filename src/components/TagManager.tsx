@@ -52,6 +52,23 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
   const [queryTerms, setQueryTerms] = useState("");
   const [generating, setGenerating] = useState(false);
   const [postCreateStatus, setPostCreateStatus] = useState<string | null>(null);
+  const [fetchingArticles, setFetchingArticles] = useState(false);
+
+  const fetchingDialog = fetchingArticles ? (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Fetching articles"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+    >
+      <div className="w-full max-w-xs rounded-lg border border-white/10 bg-black p-4 shadow-xl">
+        <p className="text-sm font-medium text-white">Fetching articles...</p>
+        <p className="mt-1 text-xs text-white/60">
+          Pulling stories for the new tag.
+        </p>
+      </div>
+    </div>
+  ) : null;
 
   async function handleGenerate() {
     setError(null);
@@ -68,6 +85,7 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
+          disabled={fetchingArticles}
           className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-white hover:border-white/30 hover:bg-white/10"
         >
           + Add tag
@@ -75,12 +93,14 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
         {postCreateStatus && (
           <p className="text-xs text-white/60">{postCreateStatus}</p>
         )}
+        {fetchingDialog}
       </div>
     );
   }
 
   return (
-    <form
+    <>
+      <form
       action={(fd) => {
         setError(null);
         setPostCreateStatus(null);
@@ -101,21 +121,26 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
             });
 
             // Fetch articles for the new tag without blocking tag creation UX.
-            setPostCreateStatus("Tag added. Fetching articles…");
+            setPostCreateStatus("Tag added. Fetching articles...");
+            setFetchingArticles(true);
             void (async () => {
-              const refreshed = await refreshTagArticles(res.id);
-              if (refreshed.ok) {
-                const attached =
-                  "attached" in refreshed ? refreshed.attached ?? 0 : 0;
-                const total = refreshed.inserted + attached;
-                setPostCreateStatus(
-                  total > 0 ? `Fetched +${total} new` : "No matches found yet",
-                );
-              } else {
-                setPostCreateStatus(refreshed.error);
+              try {
+                const refreshed = await refreshTagArticles(res.id);
+                if (refreshed.ok) {
+                  const attached =
+                    "attached" in refreshed ? refreshed.attached ?? 0 : 0;
+                  const total = refreshed.inserted + attached;
+                  setPostCreateStatus(
+                    total > 0 ? `Fetched +${total} new` : "No matches found yet",
+                  );
+                } else {
+                  setPostCreateStatus(refreshed.error);
+                }
+              } finally {
+                setFetchingArticles(false);
+                router.refresh();
+                setTimeout(() => setPostCreateStatus(null), 5000);
               }
-              router.refresh();
-              setTimeout(() => setPostCreateStatus(null), 5000);
             })();
           }
         });
@@ -147,7 +172,7 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
             disabled={generating || !name.trim()}
             className="text-xs text-white/60 underline decoration-dotted underline-offset-2 hover:text-white disabled:opacity-40"
           >
-            {generating ? "Generating…" : "Generate with AI"}
+            {generating ? "Generating..." : "Generate with AI"}
           </button>
         </div>
         <textarea
@@ -191,7 +216,9 @@ function NewTagForm({ onCreated }: { onCreated: (tag: TagRow) => void }) {
           Cancel
         </button>
       </div>
-    </form>
+      </form>
+      {fetchingDialog}
+    </>
   );
 }
 
@@ -291,7 +318,7 @@ function EditTagForm({
             disabled={generating || !name.trim()}
             className="text-xs text-white/60 underline decoration-dotted underline-offset-2 hover:text-white disabled:opacity-40"
           >
-            {generating ? "Regenerating…" : "Regenerate with AI"}
+            {generating ? "Regenerating..." : "Regenerate with AI"}
           </button>
         </div>
         <textarea
@@ -329,43 +356,68 @@ function PurgeButton({ tag }: { tag: TagRow }) {
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
 
-  if (confirming) {
-    return (
-      <div className="flex gap-1">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            startTransition(async () => {
-              await purgeTagArticles(tag.id);
-              setConfirming(false);
-            })
-          }
-          className="rounded-md bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-black hover:bg-amber-500 disabled:opacity-50"
-        >
-          {pending ? "Purging..." : "Confirm purge"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          disabled={pending}
-          className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:border-white/30 hover:text-white disabled:opacity-50"
-        >
-          Cancel
-        </button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!confirming) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirming(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [confirming]);
 
   return (
-    <button
-      type="button"
-      onClick={() => setConfirming(true)}
-      title="Delete all articles currently tagged here, then refetch from scratch"
-      className="rounded-md border border-amber-500/30 px-3 py-1.5 text-xs text-amber-300 hover:border-amber-500/60 hover:text-amber-200"
-    >
-      Purge & refetch
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        title="Delete all articles currently tagged here, then refetch from scratch"
+        className="rounded-md border border-amber-500/30 px-3 py-1.5 text-xs text-amber-300 hover:border-amber-500/60 hover:text-amber-200"
+      >
+        Purge & refetch
+      </button>
+      {confirming && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setConfirming(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-lg border border-white/10 bg-black p-4 shadow-xl">
+            <h3 className="text-sm font-semibold">
+              Purge and refetch &quot;{tag.name}&quot;?
+            </h3>
+            <p className="mt-1 text-xs text-white/60">
+              This clears current tag links and fetches from scratch.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setConfirming(false)}
+                className="rounded-md border border-white/15 px-3 py-2 text-xs text-white/70 hover:border-white/30 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    await purgeTagArticles(tag.id);
+                    setConfirming(false);
+                  })
+                }
+                className="rounded-md bg-amber-500/80 px-3 py-2 text-xs font-medium text-black hover:bg-amber-500 disabled:opacity-50"
+              >
+                {pending ? "Purging..." : "Purge & refetch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -402,7 +454,9 @@ function DeleteButton({ tag }: { tag: TagRow }) {
           }}
         >
           <div className="w-full max-w-sm rounded-lg border border-white/10 bg-black p-4 shadow-xl">
-            <h3 className="text-sm font-semibold">Delete “{tag.name}”?</h3>
+            <h3 className="text-sm font-semibold">
+              Delete &quot;{tag.name}&quot;?
+            </h3>
             <p className="mt-1 text-xs text-white/60">
               This removes the tag. Articles already fetched will stay in your
               feed.
