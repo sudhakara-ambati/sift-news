@@ -285,6 +285,133 @@ function sanitizeQuery(raw: string): string {
   return q;
 }
 
+function fallbackQueryFromTag(name: string): string {
+  const cleaned = name.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "";
+  return /\s/.test(cleaned) ? `"${cleaned.replace(/"/g, '\\"')}"` : cleaned;
+}
+
+function quoteIfNeeded(term: string): string {
+  return /\s/.test(term) ? `"${term.replace(/"/g, '\\"')}"` : term;
+}
+
+function buildOrQueryFromCommaList(line: string): string | null {
+  const parts = line
+    .split(",")
+    .map((p) => p.trim().replace(/^[`"']+|[`"'.]+$/g, ""))
+    .filter(Boolean);
+
+  if (parts.length < 3 || parts.length > 20) return null;
+  if (parts.some((p) => p.length < 2 || p.length > 60)) return null;
+  // Avoid converting normal prose sentences into OR lists.
+  if (parts.some((p) => /^(the|and|but|or|if|when|what)\b/i.test(p))) return null;
+
+  return parts.map(quoteIfNeeded).join(" OR ");
+}
+
+function tryParseQueryJson(raw: string): string | null {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+  const candidates = [cleaned];
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(cleaned.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as
+        | { query?: unknown; queryTerms?: unknown }
+        | null;
+      if (!parsed || typeof parsed !== "object") continue;
+      if (typeof parsed.query === "string" && parsed.query.trim()) {
+        return parsed.query.trim();
+      }
+      if (typeof parsed.queryTerms === "string" && parsed.queryTerms.trim()) {
+        return parsed.queryTerms.trim();
+      }
+    } catch {
+      // Not JSON; continue.
+    }
+  }
+  return null;
+}
+
+function isLikelyQuery(text: string): boolean {
+  if (!text) return false;
+  if (/[\r\n]/.test(text)) return false;
+  if (text.length < 2 || text.length > 500) return false;
+  if (
+    /(the user wants|what is this tag|proper nouns|which distinctive|output only|newsapi|think through)/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  const hasBoolean = /\b(?:AND|OR|NOT)\b/.test(text);
+  const hasStructure = /[()"]/.test(text);
+  const tokenCount = text.split(/\s+/).length;
+  if (hasBoolean || hasStructure) return true;
+  // Allow concise single-topic fallbacks like "Gaza" / "OpenAI".
+  return tokenCount <= 4 && !/[.!?]/.test(text);
+}
+
+function normaliseBooleanOperators(text: string): string {
+  return text.replace(/\b(and|or|not)\b/gi, (m) => m.toUpperCase());
+}
+
+function ensureGroupedOrQuery(text: string): string {
+  const q = text.trim();
+  const hasOr = /\bOR\b/.test(q);
+  const hasAnd = /\bAND\b/.test(q);
+  if (hasOr && !hasAnd && !q.startsWith("(") && !q.endsWith(")")) {
+    return `(${q})`;
+  }
+  return q;
+}
+
+function extractBestQuery(raw: string, tagName: string): string {
+  const direct = sanitizeQuery(raw);
+  const jsonQuery = tryParseQueryJson(raw);
+  const lineCandidates = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      const stripped = line
+        .replace(/^\s*(?:[-*]|\d+[.)])\s*/, "")
+        .replace(/^\s*(?:query|improved query|final query)\s*:\s*/i, "")
+        .trim();
+      const fromArrow = stripped.includes("→")
+        ? stripped.split("→").slice(1).join("→").trim()
+        : "";
+      return [stripped, fromArrow].filter(Boolean);
+    });
+
+  const candidates = [
+    ...(jsonQuery ? [jsonQuery] : []),
+    direct,
+    ...lineCandidates,
+  ].map((c) => sanitizeQuery(c));
+
+  for (const candidate of candidates) {
+    if (isLikelyQuery(candidate)) {
+      return ensureGroupedOrQuery(normaliseBooleanOperators(candidate));
+    }
+    const orQuery = buildOrQueryFromCommaList(candidate);
+    if (orQuery && isLikelyQuery(orQuery)) {
+      return ensureGroupedOrQuery(normaliseBooleanOperators(orQuery));
+    }
+  }
+
+  return ensureGroupedOrQuery(
+    normaliseBooleanOperators(fallbackQueryFromTag(tagName)),
+  );
+}
+
 const QUERY_GUIDE = [
   "NewsAPI `/everything` query behaviour:",
   "- Matches across title + description + content (full-text).",
@@ -346,11 +473,27 @@ async function draftTagQuery(name: string): Promise<string> {
 
   const { value: raw } = await withModelFallback(async (modelName) => {
     const client = getClient();
-    const model = client.getGenerativeModel({ model: modelName });
+    const model = client.getGenerativeModel(
+      isGemma(modelName)
+        ? { model: modelName }
+        : {
+            model: modelName,
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  query: { type: SchemaType.STRING },
+                },
+                required: ["query"],
+              },
+            },
+          },
+    );
     const result = await withRetry(() => model.generateContent(prompt));
     return result.response.text().trim();
   });
-  return sanitizeQuery(raw);
+  return extractBestQuery(raw, name);
 }
 
 async function refineTagQuery(name: string, draft: string): Promise<string> {
@@ -387,11 +530,27 @@ async function refineTagQuery(name: string, draft: string): Promise<string> {
 
   const { value: raw } = await withModelFallback(async (modelName) => {
     const client = getClient();
-    const model = client.getGenerativeModel({ model: modelName });
+    const model = client.getGenerativeModel(
+      isGemma(modelName)
+        ? { model: modelName }
+        : {
+            model: modelName,
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  query: { type: SchemaType.STRING },
+                },
+                required: ["query"],
+              },
+            },
+          },
+    );
     const result = await withRetry(() => model.generateContent(prompt));
     return result.response.text().trim();
   });
-  return sanitizeQuery(raw);
+  return extractBestQuery(raw, name);
 }
 
 export class GeminiProvider implements AIProvider {
@@ -556,9 +715,9 @@ export class GeminiProvider implements AIProvider {
   async generateTagQuery({ name }: { name: string }): Promise<string> {
     const draft = await draftTagQuery(name);
     if (process.env.AI_TAG_QUERY_REFINE !== "1") {
-      return sanitizeQuery(draft);
+      return extractBestQuery(draft, name);
     }
     const refined = await refineTagQuery(name, draft);
-    return sanitizeQuery(refined) || sanitizeQuery(draft);
+    return extractBestQuery(refined, name) || extractBestQuery(draft, name);
   }
 }
