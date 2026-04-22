@@ -22,6 +22,11 @@ const DEFAULT_MODELS = [
   "gemma-3-12b-it",
   "gemma-3-4b-it",
 ];
+const TAG_QUERY_DEFAULT_MODELS = [
+  "gemini-2.5-flash-lite",
+  "gemini-3-flash-lite-latest",
+  "gemma-3-4b-it",
+];
 
 const DEFAULT_CHAT_HISTORY_CHAR_BUDGET = 6000;
 const parsedChatHistoryBudget = Number.parseInt(
@@ -47,6 +52,18 @@ function getModels(): string[] {
   if (primary && fallbacks?.length) return [primary, ...fallbacks];
   if (primary) return [primary, ...DEFAULT_MODELS.filter((m) => m !== primary)];
   return DEFAULT_MODELS;
+}
+
+function getTagQueryModels(): string[] {
+  const override = process.env.GEMINI_TAG_QUERY_MODELS
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (override && override.length > 0) return override;
+
+  const all = getModels();
+  const selected = TAG_QUERY_DEFAULT_MODELS.filter((m) => all.includes(m));
+  return selected.length > 0 ? selected : all.slice(0, 3);
 }
 
 function getClient(): GoogleGenerativeAI {
@@ -186,6 +203,21 @@ async function withModelFallback<T>(
     }
   }
 
+  if (first.allQuota) throw new AllModelsExhaustedError();
+  throw first.lastErr;
+}
+
+// Tag-query generation is user-triggered and latency-sensitive. We skip the
+// long per-minute quota backoff loop here so UI feedback is faster.
+async function withTagQueryModelFallback<T>(
+  fn: (modelName: string) => Promise<T>,
+): Promise<ModelResult<T>> {
+  const models = getTagQueryModels();
+  const live = models.filter((m) => !isExhausted(m));
+  if (live.length === 0) throw new AllModelsExhaustedError();
+
+  const first = await tryModels(live, fn);
+  if (first.result) return first.result;
   if (first.allQuota) throw new AllModelsExhaustedError();
   throw first.lastErr;
 }
@@ -398,15 +430,6 @@ function queryQualityScore(query: string, tagName: string): number {
   return score;
 }
 
-function isWeakQuery(query: string): boolean {
-  const q = query.trim();
-  if (!q) return true;
-  if (q.length < 24) return true;
-  const termCount = estimateTermCount(q);
-  if (termCount <= 2) return true;
-  return false;
-}
-
 function pickBestQuery(candidates: string[], tagName: string): string | null {
   const unique = Array.from(
     new Set(
@@ -509,6 +532,11 @@ async function draftTagQuery(name: string): Promise<string> {
     "",
     QUERY_GUIDE,
     "",
+    "Hard constraints:",
+    "- Output a production-ready query, not a minimal placeholder.",
+    "- For single-topic tags, include at least 6 distinctive terms.",
+    "- For war/conflict tags, prefer two grouped facets joined by AND.",
+    "",
     "Think through this internally before answering (do NOT output the reasoning):",
     "1. What is this tag really about? One topic, or multiple AND'd facets?",
     "2. Which proper nouns — people, orgs, products, places, treaties, laws, events — are central in 2026? List ~10 mentally.",
@@ -530,14 +558,18 @@ async function draftTagQuery(name: string): Promise<string> {
     "",
     "Output ONLY the query string — no surrounding quotes, no markdown, no explanation, no leading `Query:`.",
     "",
+    '  Tag "Gaza" â†’',
+    '    (Gaza OR "Gaza Strip" OR Rafah OR "Khan Younis" OR "Deir al-Balah" OR UNRWA) AND (Israel OR IDF OR Hamas OR ceasefire OR hostage OR humanitarian)',
+    '  Tag "Israel-Iran war" (richer variant) â†’',
+    '    (Israel OR Jerusalem OR IDF) AND (Iran OR Tehran OR IRGC OR "Islamic Revolutionary Guard Corps" OR Khamenei OR "Supreme Leader" OR Hezbollah OR "Axis of Resistance" OR "nuclear programme")',
     `Tag: ${name}`,
     "Query:",
   ].join("\n");
 
-  const { value: raw } = await withModelFallback(async (modelName) => {
+  const { value: raw } = await withTagQueryModelFallback(async (modelName) => {
     const client = getClient();
     const model = client.getGenerativeModel({ model: modelName });
-    const result = await withRetry(() => model.generateContent(prompt));
+    const result = await withRetry(() => model.generateContent(prompt), 2);
     return result.response.text().trim();
   });
   return extractBestQuery(raw, name);
@@ -575,10 +607,10 @@ async function refineTagQuery(name: string, draft: string): Promise<string> {
     "Improved query:",
   ].join("\n");
 
-  const { value: raw } = await withModelFallback(async (modelName) => {
+  const { value: raw } = await withTagQueryModelFallback(async (modelName) => {
     const client = getClient();
     const model = client.getGenerativeModel({ model: modelName });
-    const result = await withRetry(() => model.generateContent(prompt));
+    const result = await withRetry(() => model.generateContent(prompt), 2);
     return result.response.text().trim();
   });
   return extractBestQuery(raw, name);
@@ -746,9 +778,7 @@ export class GeminiProvider implements AIProvider {
   async generateTagQuery({ name }: { name: string }): Promise<string> {
     const draft = await draftTagQuery(name);
     const draftBest = extractBestQuery(draft, name);
-    const shouldRefine =
-      process.env.AI_TAG_QUERY_REFINE === "1" || isWeakQuery(draftBest);
-    if (!shouldRefine) return draftBest;
+    if (process.env.AI_TAG_QUERY_REFINE !== "1") return draftBest;
 
     try {
       const refined = await refineTagQuery(name, draftBest);

@@ -1,5 +1,4 @@
 import { GeminiProvider } from "./gemini";
-import { ClaudeProvider } from "./claude";
 
 export type ChatTurn = {
   role: "user" | "assistant";
@@ -54,6 +53,10 @@ export function isGroundedModel(modelName: string | undefined | null): boolean {
 
 export function getAIProvider(): AIProvider {
   const provider = (process.env.AI_PROVIDER ?? "gemini").toLowerCase();
-  if (provider === "claude") return new ClaudeProvider();
+  if (provider !== "gemini") {
+    console.warn(
+      `AI_PROVIDER=${provider} is not supported in this build; using gemini.`,
+    );
+  }
   return new GeminiProvider();
 }
