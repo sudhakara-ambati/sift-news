@@ -4,6 +4,7 @@ import { fetchOgImage } from "@/lib/news/og-image";
 
 const MIN_CONTENT_CHARS = 400;
 const MAX_CONTENT_CHARS = 20_000;
+const FETCH_TIMEOUT_MS = 6000;
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
@@ -19,6 +20,7 @@ async function resolveGoogleNewsUrl(url: string): Promise<string> {
     const res = await fetch(url, {
       redirect: "follow",
       headers: { "user-agent": BROWSER_UA },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (res.url && !res.url.includes("news.google.com")) return res.url;
     const html = await res.text();
@@ -84,7 +86,7 @@ export async function getArticleContent(
       { contentLengthThreshold: MIN_CONTENT_CHARS },
       {
         headers: { "user-agent": BROWSER_UA },
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       },
     );
     const rawHtml = data?.content?.trim();
