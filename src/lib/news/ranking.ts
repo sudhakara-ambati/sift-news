@@ -347,6 +347,13 @@ export function extractDistinctiveTerms(queryTerms: string): string[] {
   return [...terms];
 }
 
+function hasDistinctiveTermMatch(haystack: string, term: string): boolean {
+  if (term.includes(" ")) return haystack.includes(term);
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, "i");
+  return re.test(haystack);
+}
+
 // Attach tag IDs to any article whose title OR source contains a distinctive
 // term from that tag's query. Lets lab-site / top-headline / RSS articles
 // reach tag pages — e.g. an anthropic.com post on `Claude 3.7` gets the AI
@@ -366,7 +373,9 @@ export function autoTagArticles(
     const nextTagIds = new Set(a.tagIds);
     for (const { id, terms } of tagTerms) {
       if (nextTagIds.has(id)) continue;
-      if (terms.some((t) => haystack.includes(t))) nextTagIds.add(id);
+      if (terms.some((t) => hasDistinctiveTermMatch(haystack, t))) {
+        nextTagIds.add(id);
+      }
     }
     if (nextTagIds.size === a.tagIds.length) return a;
     return { ...a, tagIds: [...nextTagIds] };

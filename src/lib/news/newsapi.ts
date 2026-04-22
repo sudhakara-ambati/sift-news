@@ -1,5 +1,6 @@
 import type { FetchedArticle } from "./types";
 import { cleanSnippet, cleanTitle } from "@/lib/text";
+import { extractDistinctiveTerms } from "@/lib/news/ranking";
 
 type NewsApiArticle = {
   title: string | null;
@@ -18,6 +19,20 @@ type NewsApiResponse = {
 
 const BASE = "https://newsapi.org/v2";
 const TIMEOUT_MS = 8000;
+
+function hasTermMatch(text: string, term: string): boolean {
+  if (term.includes(" ")) return text.includes(term);
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, "i");
+  return re.test(text);
+}
+
+function isLikelyTagMatch(article: NewsApiArticle, terms: string[]): boolean {
+  if (terms.length === 0) return true;
+  const haystack = `${article.title ?? ""} ${article.description ?? ""} ${article.source?.name ?? ""}`
+    .toLowerCase();
+  return terms.some((term) => hasTermMatch(haystack, term));
+}
 
 function mapArticle(
   raw: NewsApiArticle,
@@ -112,7 +127,9 @@ export async function fetchEverythingForTag(
     seen.add(a.url);
     merged.push(a);
   }
-  return merged.map((a) => mapArticle(a, [tagId], false)).filter(nonNull);
+  const distinctiveTerms = extractDistinctiveTerms(queryTerms);
+  const filtered = merged.filter((a) => isLikelyTagMatch(a, distinctiveTerms));
+  return filtered.map((a) => mapArticle(a, [tagId], false)).filter(nonNull);
 }
 
 // Ad-hoc keyword search. Same dual-sort pattern as tag fetches but tagless.

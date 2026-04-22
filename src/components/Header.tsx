@@ -26,18 +26,22 @@ export default function Header() {
             </nav>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden sm:block">
-              <SearchBar variant="inline" />
-            </div>
+            <Suspense fallback={null}>
+              <div className="hidden sm:block">
+                <SearchBar variant="inline" />
+              </div>
+            </Suspense>
             <Suspense fallback={null}>
               <RefreshButton />
             </Suspense>
             <SignOutButton />
           </div>
         </div>
-        <div className="mt-3 sm:hidden">
-          <SearchBar variant="full" />
-        </div>
+        <Suspense fallback={null}>
+          <div className="mt-3 sm:hidden">
+            <SearchBar variant="full" />
+          </div>
+        </Suspense>
       </div>
     </header>
   );
