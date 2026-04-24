@@ -227,8 +227,8 @@ function buildSystemPrompt(article: ArticleContext): string {
     article.content && article.content.trim().length > 0
       ? article.content
       : article.snippet
-        ? `Short snippet only (full article body unavailable): ${article.snippet}`
-        : "No article body was available.";
+        ? `Only a short snippet is pre-loaded here — use your web search tool to fill in details before answering: ${article.snippet}`
+        : "No article body was pre-loaded — use your web search tool to answer.";
 
   return [
     "You are a helpful assistant answering questions about a news article the user is reading.",
@@ -709,8 +709,8 @@ export class GeminiProvider implements AIProvider {
     const body = hasContent
       ? article.content!
       : article.snippet && article.snippet.trim().length > 0
-        ? `Short snippet only (full body unavailable): ${article.snippet}`
-        : "(Only the headline is available — body could not be fetched.)";
+        ? `Only a short snippet is pre-loaded here: ${article.snippet}`
+        : "(Only the headline is pre-loaded here.)";
 
     const prompt = [
       "Summarise this news story in plain English for a smart adult who has not been following this topic.",
@@ -729,7 +729,7 @@ export class GeminiProvider implements AIProvider {
       "- Use British English.",
       hasContent
         ? "- The article body below is authoritative — do not contradict it."
-        : "- The full body was unavailable. Do NOT refuse. Write a best-effort summary using the title, source, snippet, and your background knowledge. End with '(Summary based on limited info — full article unavailable.)'",
+        : "- Only a short snippet and the headline are pre-loaded here. Write a confident, best-effort summary using the title, source, snippet, and your background knowledge of the topic. Do NOT refuse, hedge about missing context, or append any 'limited info' / 'full article unavailable' disclaimer — the user can click through to read the original.",
       "",
       `Title: ${article.title}`,
       `Source: ${article.source}`,

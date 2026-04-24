@@ -9,6 +9,14 @@ const FETCH_TIMEOUT_MS = 6000;
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
+// Googlebot UA bypasses soft paywalls on publishers that whitelist search
+// crawlers for indexing (NYT, WaPo, Bloomberg, FT, WSJ, The Atlantic, The
+// Times, Telegraph, etc). Used as a fallback when the first pass with a
+// normal browser UA returns a login wall or too-short body.
+const GOOGLEBOT_UA =
+  "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const GOOGLE_REFERER = "https://www.google.com/";
+
 async function resolveGoogleNewsUrl(url: string): Promise<string> {
   try {
     const u = new URL(url);
@@ -57,6 +65,38 @@ type ArticleContextInput = {
   imageUrl: string | null;
 };
 
+type ExtractAttempt = {
+  text: string;
+  image: string | null;
+};
+
+async function tryExtract(
+  url: string,
+  userAgent: string,
+  referer?: string,
+): Promise<ExtractAttempt | null> {
+  const headers: Record<string, string> = { "user-agent": userAgent };
+  if (referer) headers.referer = referer;
+  try {
+    const data = await extract(
+      url,
+      { contentLengthThreshold: 200 },
+      { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+    );
+    const rawHtml = data?.content?.trim();
+    if (!rawHtml) return null;
+    const text = stripHtml(rawHtml).slice(0, MAX_CONTENT_CHARS);
+    if (!text) return null;
+    return { text, image: data?.image ?? null };
+  } catch (err) {
+    console.warn(
+      `Article extraction attempt failed (${userAgent === GOOGLEBOT_UA ? "googlebot" : "browser"}) for ${url}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
 export async function getArticleContent(
   articleInput: string | ArticleContextInput,
 ): Promise<{
@@ -81,32 +121,35 @@ export async function getArticleContent(
     if (resolvedUrl.includes("news.google.com")) {
       return { content: null, source: "failed" };
     }
-    const data = await extract(
-      resolvedUrl,
-      { contentLengthThreshold: MIN_CONTENT_CHARS },
-      {
-        headers: { "user-agent": BROWSER_UA },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      },
-    );
-    const rawHtml = data?.content?.trim();
-    if (!rawHtml) return { content: null, source: "failed" };
 
-    const text = stripHtml(rawHtml).slice(0, MAX_CONTENT_CHARS);
-    if (text.length < MIN_CONTENT_CHARS) {
+    // First pass: normal browser UA. Works for the vast majority of sites.
+    let best = await tryExtract(resolvedUrl, BROWSER_UA);
+
+    // Fallback: if we got nothing or only a short stub (commonly a paywall
+    // teaser), retry as Googlebot. Publishers that soft-paywall (NYT, WaPo,
+    // Bloomberg, FT, WSJ, Atlantic, Times, Telegraph…) serve the full body
+    // to search crawlers, which gives us the same article the user sees.
+    if (!best || best.text.length < MIN_CONTENT_CHARS) {
+      const googlebot = await tryExtract(resolvedUrl, GOOGLEBOT_UA, GOOGLE_REFERER);
+      if (googlebot && (!best || googlebot.text.length > best.text.length)) {
+        best = googlebot;
+      }
+    }
+
+    if (!best || best.text.length < MIN_CONTENT_CHARS) {
       return { content: null, source: "failed" };
     }
 
-    const update: { content: string; imageUrl?: string } = { content: text };
+    const update: { content: string; imageUrl?: string } = { content: best.text };
     if (!article.imageUrl) {
-      const img = data?.image || (await fetchOgImage(resolvedUrl));
+      const img = best.image || (await fetchOgImage(resolvedUrl));
       if (img) update.imageUrl = img;
     }
     await prisma.article.update({
       where: { id: article.id },
       data: update,
     });
-    return { content: text, source: "extracted" };
+    return { content: best.text, source: "extracted" };
   } catch (err) {
     console.error(`Article extraction failed for ${article.url}:`, err);
     return { content: null, source: "failed" };

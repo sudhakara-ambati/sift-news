@@ -10,7 +10,13 @@ export default function ScrollRestore() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const key = `${PREFIX}${pathname}?${searchParams?.toString() ?? ""}`;
+    const search = searchParams?.toString() ?? "";
+    const key = `${PREFIX}${pathname}?${search}`;
+
+    // Remember the current feed URL so the article page's back link can
+    // return to the exact tag/view the user was browsing.
+    const feedUrl = search ? `${pathname}?${search}` : pathname;
+    sessionStorage.setItem("sift-feed-return", feedUrl);
 
     const saved = sessionStorage.getItem(key);
     if (saved) {

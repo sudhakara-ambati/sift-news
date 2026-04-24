@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { formatRelativeTime } from "@/lib/time";
 import ChatPanel from "@/components/ChatPanel";
 import ArticleSummary from "@/components/ArticleSummary";
 import ArticleImage from "@/components/ArticleImage";
+import BackToFeed from "@/components/BackToFeed";
 
 export const revalidate = 60;
 
@@ -68,12 +68,7 @@ export default async function ArticleDetail({
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
-      <Link
-        href="/"
-        className="mb-5 inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-white/50 hover:text-white/80"
-      >
-        <span aria-hidden>←</span> Feed
-      </Link>
+      <BackToFeed />
 
       <article>
         <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/55">
